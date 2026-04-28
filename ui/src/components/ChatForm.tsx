@@ -26,60 +26,61 @@ export function ChatForm({
   }
 
   return (
-    <div className="card">
-      <label htmlFor="patient">Patient (locked for the conversation)</label>
-      <select
-        id="patient"
-        value={patientId}
-        onChange={(e) => setPatientId(e.target.value)}
-        disabled={loading}
-      >
-        {PATIENTS.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.label}
-          </option>
-        ))}
-      </select>
+    <section className="card form-card">
+      <div className="field">
+        <label htmlFor="patient">Patient</label>
+        <select
+          id="patient"
+          value={patientId}
+          onChange={(e) => setPatientId(e.target.value)}
+          disabled={loading}
+        >
+          {PATIENTS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+      </div>
 
-      <label htmlFor="message" style={{ marginTop: 16 }}>
-        Your question
-      </label>
-      <textarea
-        id="message"
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-        onKeyDown={onKey}
-        placeholder="brief me"
-        disabled={loading}
-      />
-      <div className="examples">
+      <div className="field">
+        <label htmlFor="message">What would you like to know?</label>
+        <textarea
+          id="message"
+          value={message}
+          onChange={(e) => setMessage(e.target.value)}
+          onKeyDown={onKey}
+          placeholder="Brief me on this patient."
+          disabled={loading}
+          rows={3}
+        />
+      </div>
+
+      <div className="examples" aria-label="Example questions">
         {EXAMPLES.map((ex) => (
-          <span
+          <button
             key={ex.label}
+            type="button"
             className="example"
             onClick={() => !loading && setMessage(ex.text)}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault()
-                if (!loading) setMessage(ex.text)
-              }
-            }}
+            disabled={loading}
           >
             {ex.label}
-          </span>
+          </button>
         ))}
       </div>
 
-      <button
-        type="button"
-        onClick={onSubmit}
-        disabled={loading || !message.trim()}
-      >
-        {loading ? 'Thinking…' : 'Ask'}
-      </button>
-      <span className="hint">Ctrl/⌘+Enter to submit</span>
-    </div>
+      <div className="actions">
+        <button
+          type="button"
+          className="primary"
+          onClick={onSubmit}
+          disabled={loading || !message.trim()}
+        >
+          {loading ? 'Thinking…' : 'Ask'}
+        </button>
+        <span className="hint">Ctrl/⌘ + Enter</span>
+      </div>
+    </section>
   )
 }

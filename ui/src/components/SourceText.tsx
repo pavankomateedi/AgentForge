@@ -1,24 +1,12 @@
-// Renders text containing <source id="..."/> tags into JSX, replacing each tag
-// with a styled span. React-safe — no dangerouslySetInnerHTML.
+// Renders a verified briefing without exposing the underlying source-id tags.
+// The verifier confirms every clinical claim is grounded; the inline
+// <source id="..."/> tags are stripped from the display so the clinician
+// sees clean prose. The verification badge in ResponsePanel is the
+// user-facing trust signal.
 
-const SOURCE_TAG_RE = /(<source\s+id="[^"]+"\s*\/>)/g
-const SOURCE_TAG_PARSE_RE = /<source\s+id="([^"]+)"\s*\/>/
+const SOURCE_TAG_RE = /\s*<source\s+id="[^"]+"\s*\/>/g
 
 export function SourceText({ text }: { text: string }) {
-  const parts = text.split(SOURCE_TAG_RE)
-  return (
-    <>
-      {parts.map((part, i) => {
-        const m = part.match(SOURCE_TAG_PARSE_RE)
-        if (m) {
-          return (
-            <span key={i} className="source-tag" title={`source: ${m[1]}`}>
-              {m[1]}
-            </span>
-          )
-        }
-        return <span key={i}>{part}</span>
-      })}
-    </>
-  )
+  const cleaned = text.replace(SOURCE_TAG_RE, '').trim()
+  return <>{cleaned}</>
 }

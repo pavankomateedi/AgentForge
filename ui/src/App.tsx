@@ -6,7 +6,7 @@ import './App.css'
 
 function App() {
   const [patientId, setPatientId] = useState('demo-001')
-  const [message, setMessage] = useState('brief me')
+  const [message, setMessage] = useState('Brief me on this patient.')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<ChatResponse | null>(null)
   const [elapsed, setElapsed] = useState<number | null>(null)
@@ -32,13 +32,16 @@ function App() {
       setElapsed(elapsedSec)
 
       if (!res.ok) {
-        setError(`HTTP ${res.status} — see server logs`)
+        setError(`The server returned an error (HTTP ${res.status}).`)
         return
       }
       const data: ChatResponse = await res.json()
       setResult(data)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(
+        'Could not reach the server. ' +
+          (err instanceof Error ? err.message : String(err)),
+      )
     } finally {
       setLoading(false)
     }
@@ -46,30 +49,30 @@ function App() {
 
   return (
     <div className="app">
-      <header>
-        <h1>Clinical Co-Pilot — v0 Demo</h1>
-        <p className="subtitle">
-          AgentForge Week 1 · Mock FHIR · Two synthetic patients · Claude Opus 4.7
-        </p>
+      <header className="page-header">
+        <h1>Clinical Co-Pilot</h1>
+        <p className="tagline">Pre-visit briefings, grounded in the chart.</p>
       </header>
 
-      <ChatForm
-        patientId={patientId}
-        setPatientId={setPatientId}
-        message={message}
-        setMessage={setMessage}
-        loading={loading}
-        onSubmit={ask}
-      />
-
-      {showResult && (
-        <ResponsePanel
+      <main>
+        <ChatForm
+          patientId={patientId}
+          setPatientId={setPatientId}
+          message={message}
+          setMessage={setMessage}
           loading={loading}
-          result={result}
-          elapsed={elapsed}
-          error={error}
+          onSubmit={ask}
         />
-      )}
+
+        {showResult && (
+          <ResponsePanel
+            loading={loading}
+            result={result}
+            elapsed={elapsed}
+            error={error}
+          />
+        )}
+      </main>
     </div>
   )
 }

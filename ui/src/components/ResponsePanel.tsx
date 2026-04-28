@@ -10,126 +10,68 @@ type Props = {
 
 export function ResponsePanel({ loading, result, elapsed, error }: Props) {
   return (
-    <div className="card">
-      <div className="status">
-        {loading && (
-          <span className="loading">
-            Calling agent (5–15s with adaptive thinking)…
-          </span>
-        )}
-        {!loading && error && <span className="error">{error}</span>}
-        {!loading && result && (
-          <>
-            <strong>Response</strong>
-            {result.verified ? (
-              <span className="badge verified">✓ Verified</span>
-            ) : (
-              <span className="badge failed">⚠ Not verified — fallback panel</span>
-            )}
-            {elapsed != null && (
-              <span className="meta">{elapsed.toFixed(1)}s</span>
-            )}
-          </>
-        )}
+    <section className="card response-card" aria-live="polite">
+      <div className="response-header">
+        <h2 className="response-title">Briefing</h2>
+        <div className="response-meta">
+          {!loading && result && (
+            <>
+              {result.verified ? (
+                <span className="badge verified" aria-label="Verified">
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 12 12"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M2.5 6.5L4.5 8.5L9.5 3.5"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  Verified
+                </span>
+              ) : (
+                <span className="badge needs-review" aria-label="Needs review">
+                  Needs review
+                </span>
+              )}
+              {elapsed != null && (
+                <span className="elapsed">{elapsed.toFixed(1)}s</span>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
-      {!loading && result && (
-        <>
-          <div className="response">
+      <div className="response-body">
+        {loading && (
+          <div className="thinking">
+            <span className="dot" />
+            <span className="dot" />
+            <span className="dot" />
+            <span className="thinking-label">
+              Reviewing the chart and writing your briefing…
+            </span>
+          </div>
+        )}
+
+        {!loading && error && <p className="error">{error}</p>}
+
+        {!loading && result && (
+          <p className="response">
             {result.response ? (
               <SourceText text={result.response} />
             ) : (
-              <span className="empty">(empty response)</span>
+              <span className="empty">No briefing was produced.</span>
             )}
-          </div>
-
-          <details className="trace">
-            <summary>
-              Trace — tools called, sources retrieved, verification, token usage
-            </summary>
-
-            <div className="trace-section">
-              <h4>Plan: tools called</h4>
-              {result.trace.plan_tool_calls.length === 0 ? (
-                <p className="muted">none</p>
-              ) : (
-                <ul className="tool-list">
-                  {result.trace.plan_tool_calls.map((tc, i) => (
-                    <li key={i}>
-                      <code>{tc.name}</code>
-                      <span className="muted">
-                        ({JSON.stringify(tc.input)})
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            <div className="trace-section">
-              <h4>Retrieve: source ids returned</h4>
-              {result.trace.retrieved_source_ids.length === 0 ? (
-                <p className="muted">none</p>
-              ) : (
-                <div className="chips">
-                  {result.trace.retrieved_source_ids.map((id) => (
-                    <span key={id} className="chip">
-                      {id}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="trace-section">
-              <h4>Verify</h4>
-              {result.trace.verification ? (
-                <p className={result.trace.verification.passed ? 'ok' : 'warn'}>
-                  {result.trace.verification.note}
-                </p>
-              ) : (
-                <p className="muted">no verification recorded</p>
-              )}
-            </div>
-
-            <div className="trace-section">
-              <h4>Token usage</h4>
-              <table className="usage">
-                <thead>
-                  <tr>
-                    <th></th>
-                    <th>input</th>
-                    <th>output</th>
-                    <th>cache write</th>
-                    <th>cache read</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>plan</td>
-                    <td>{result.trace.usage.plan.input_tokens}</td>
-                    <td>{result.trace.usage.plan.output_tokens}</td>
-                    <td>{result.trace.usage.plan.cache_creation_input_tokens}</td>
-                    <td>{result.trace.usage.plan.cache_read_input_tokens}</td>
-                  </tr>
-                  <tr>
-                    <td>reason</td>
-                    <td>{result.trace.usage.reason.input_tokens}</td>
-                    <td>{result.trace.usage.reason.output_tokens}</td>
-                    <td>{result.trace.usage.reason.cache_creation_input_tokens}</td>
-                    <td>{result.trace.usage.reason.cache_read_input_tokens}</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <details className="raw-trace">
-              <summary>Raw JSON</summary>
-              <pre>{JSON.stringify(result.trace, null, 2)}</pre>
-            </details>
-          </details>
-        </>
-      )}
-    </div>
+          </p>
+        )}
+      </div>
+    </section>
   )
 }
