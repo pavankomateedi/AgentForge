@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import bcrypt
+import pyotp
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
@@ -27,6 +28,8 @@ IDLE_TIMEOUT_SECONDS = 300            # 5 minutes
 ABSOLUTE_TIMEOUT_SECONDS = 28_800     # 8 hours
 MAX_FAILED_ATTEMPTS = 5
 LOCKOUT_DURATION_SECONDS = 900        # 15 minutes
+MFA_PENDING_WINDOW_SECONDS = 300      # 5 minutes to complete MFA after password
+TOTP_ISSUER = "Clinical Co-Pilot"
 
 
 # --- Domain ---
@@ -179,6 +182,63 @@ def _record_successful_login(database_url: str, user: User) -> None:
         conn.commit()
 
 
+def _save_totp_secret(database_url: str, user_id: int, secret: str) -> None:
+    with connect(database_url) as conn:
+        conn.execute(
+            """UPDATE users
+               SET totp_secret = ?,
+                   totp_enrolled = 1,
+                   updated_at = datetime('now')
+               WHERE id = ?""",
+            (secret, user_id),
+        )
+        conn.commit()
+
+
+def reset_mfa(database_url: str, user_id: int) -> None:
+    """Admin operation: clear TOTP enrollment so user must re-enroll on next login."""
+    with connect(database_url) as conn:
+        conn.execute(
+            """UPDATE users
+               SET totp_secret = NULL,
+                   totp_enrolled = 0,
+                   updated_at = datetime('now')
+               WHERE id = ?""",
+            (user_id,),
+        )
+        conn.commit()
+
+
+def _user_totp_secret(database_url: str, user_id: int) -> str | None:
+    with connect(database_url) as conn:
+        row = conn.execute(
+            "SELECT totp_secret FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+    return row["totp_secret"] if row else None
+
+
+# --- TOTP helpers ---
+
+def generate_totp_secret() -> str:
+    return pyotp.random_base32()
+
+
+def totp_provisioning_uri(user: User, secret: str) -> str:
+    return pyotp.TOTP(secret).provisioning_uri(
+        name=user.email,
+        issuer_name=TOTP_ISSUER,
+    )
+
+
+def verify_totp(secret: str, code: str) -> bool:
+    if not secret or not code:
+        return False
+    code_clean = code.strip().replace(" ", "")
+    if not code_clean.isdigit() or len(code_clean) != 6:
+        return False
+    return pyotp.TOTP(secret).verify(code_clean, valid_window=1)
+
+
 # --- Datetime helpers (UTC, ISO 8601) ---
 
 def _now() -> datetime:
@@ -208,6 +268,7 @@ def _parse_dt(s: str | None) -> datetime | None:
 # --- Session helpers ---
 
 def _set_session(request: Request, user_id: int) -> None:
+    request.session.clear()
     request.session["user_id"] = user_id
     request.session["last_activity"] = _now().isoformat()
     request.session["login_at"] = _now().isoformat()
@@ -215,6 +276,30 @@ def _set_session(request: Request, user_id: int) -> None:
 
 def _clear_session(request: Request) -> None:
     request.session.clear()
+
+
+# --- Pending-MFA helpers (after password verification, before MFA verification) ---
+
+def _set_pending_mfa(request: Request, user_id: int, *, totp_secret: str | None = None) -> None:
+    request.session.clear()
+    request.session["pending_mfa_user_id"] = user_id
+    request.session["pending_mfa_until"] = (
+        _now() + timedelta(seconds=MFA_PENDING_WINDOW_SECONDS)
+    ).isoformat()
+    if totp_secret:
+        request.session["pending_mfa_secret"] = totp_secret
+
+
+def _get_pending_mfa_user_id(request: Request) -> int | None:
+    user_id = request.session.get("pending_mfa_user_id")
+    until = _parse_dt(request.session.get("pending_mfa_until"))
+    if not user_id or not until or _now() > until:
+        return None
+    return user_id
+
+
+def _get_pending_mfa_secret(request: Request) -> str | None:
+    return request.session.get("pending_mfa_secret")
 
 
 def _get_authenticated_user_id(request: Request, config: Config) -> int | None:
@@ -308,8 +393,20 @@ def _user_out(user: User) -> UserOut:
 
 
 class LoginOut(BaseModel):
-    user: UserOut
-    needs_mfa: bool = False  # populated by Phase 2
+    user: UserOut | None = None
+    needs_mfa: bool = False
+    mfa_action: str | None = None  # "enroll" | "challenge"
+
+
+class MfaSetupOut(BaseModel):
+    provisioning_uri: str
+    secret: str  # exposed once for manual-entry fallback; persisted only after verify-setup
+    issuer: str
+    account_name: str
+
+
+class MfaCodeIn(BaseModel):
+    code: str = Field(..., min_length=6, max_length=10)
 
 
 # --- Routes ---
@@ -389,24 +486,164 @@ def login(
             detail="Invalid username or password.",
         )
 
-    # MFA gate (Phase 2 fills this in by NOT setting the session if MFA is required).
-    if user.totp_enrolled:
-        # Phase 2 will route to MFA challenge instead of completing login here.
-        # For Phase 1, we treat MFA as not-yet-enabled.
-        pass
-
+    # Password verified. Reset password failure counter, then route through MFA.
     _record_successful_login(config.database_url, user)
-    _set_session(request, user.id)
-    audit.record(
-        config.database_url,
-        audit.AuditEvent.LOGIN_SUCCESS,
-        user_id=user.id,
-        ip_address=ip,
-    )
 
     refreshed = get_user_by_id(config.database_url, user.id)
     assert refreshed is not None
-    return LoginOut(user=_user_out(refreshed), needs_mfa=False)
+
+    _set_pending_mfa(request, refreshed.id)
+    if refreshed.totp_enrolled:
+        return LoginOut(needs_mfa=True, mfa_action="challenge")
+    # Not yet enrolled — force MFA enrollment before granting access.
+    return LoginOut(needs_mfa=True, mfa_action="enroll")
+
+
+# --- MFA endpoints ---
+
+def _require_pending_mfa(request: Request) -> int:
+    user_id = _get_pending_mfa_user_id(request)
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="MFA window expired. Please sign in again.",
+        )
+    return user_id
+
+
+@router.post("/mfa/setup", response_model=MfaSetupOut)
+def mfa_setup(
+    request: Request,
+    config: Config = Depends(get_config),
+) -> MfaSetupOut:
+    # Allow setup either while pending (first-time enrollment) or while fully
+    # authenticated (re-enrollment from a logged-in user).
+    user_id = _get_pending_mfa_user_id(request) or request.session.get("user_id")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated.",
+        )
+    user = get_user_by_id(config.database_url, user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated.",
+        )
+
+    secret = generate_totp_secret()
+    # Stash secret in session; only persisted after the user proves they can compute codes.
+    request.session["pending_mfa_secret"] = secret
+    if "pending_mfa_user_id" not in request.session:
+        # Fully-authenticated re-enrollment path: remember which user is enrolling.
+        request.session["pending_mfa_user_id"] = user.id
+        request.session["pending_mfa_until"] = (
+            _now() + timedelta(seconds=MFA_PENDING_WINDOW_SECONDS)
+        ).isoformat()
+
+    audit.record(
+        config.database_url,
+        audit.AuditEvent.MFA_ENROLLMENT_STARTED,
+        user_id=user.id,
+        ip_address=_client_ip(request),
+    )
+    return MfaSetupOut(
+        provisioning_uri=totp_provisioning_uri(user, secret),
+        secret=secret,
+        issuer=TOTP_ISSUER,
+        account_name=user.email,
+    )
+
+
+@router.post("/mfa/verify-setup", response_model=LoginOut)
+def mfa_verify_setup(
+    payload: MfaCodeIn,
+    request: Request,
+    config: Config = Depends(get_config),
+) -> LoginOut:
+    user_id = _require_pending_mfa(request)
+    secret = _get_pending_mfa_secret(request)
+    if not secret:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No MFA setup in progress. Start enrollment again.",
+        )
+    if not verify_totp(secret, payload.code):
+        audit.record(
+            config.database_url,
+            audit.AuditEvent.MFA_FAILED,
+            user_id=user_id,
+            ip_address=_client_ip(request),
+            details={"phase": "enrollment"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="That code doesn't match. Check the time on your device and try again.",
+        )
+
+    _save_totp_secret(config.database_url, user_id, secret)
+    audit.record(
+        config.database_url,
+        audit.AuditEvent.MFA_ENROLLED,
+        user_id=user_id,
+        ip_address=_client_ip(request),
+    )
+    _set_session(request, user_id)
+    audit.record(
+        config.database_url,
+        audit.AuditEvent.LOGIN_SUCCESS,
+        user_id=user_id,
+        ip_address=_client_ip(request),
+        details={"via": "mfa_enrollment"},
+    )
+    user = get_user_by_id(config.database_url, user_id)
+    assert user is not None
+    return LoginOut(user=_user_out(user), needs_mfa=False)
+
+
+@router.post("/mfa/challenge", response_model=LoginOut)
+def mfa_challenge(
+    payload: MfaCodeIn,
+    request: Request,
+    config: Config = Depends(get_config),
+) -> LoginOut:
+    user_id = _require_pending_mfa(request)
+    secret = _user_totp_secret(config.database_url, user_id)
+    if not secret:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="MFA not enrolled. Sign in again to enroll.",
+        )
+    if not verify_totp(secret, payload.code):
+        audit.record(
+            config.database_url,
+            audit.AuditEvent.MFA_FAILED,
+            user_id=user_id,
+            ip_address=_client_ip(request),
+            details={"phase": "challenge"},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid code.",
+        )
+
+    _set_session(request, user_id)
+    audit.record(
+        config.database_url,
+        audit.AuditEvent.MFA_VERIFIED,
+        user_id=user_id,
+        ip_address=_client_ip(request),
+    )
+    audit.record(
+        config.database_url,
+        audit.AuditEvent.LOGIN_SUCCESS,
+        user_id=user_id,
+        ip_address=_client_ip(request),
+        details={"via": "mfa_challenge"},
+    )
+    user = get_user_by_id(config.database_url, user_id)
+    assert user is not None
+    return LoginOut(user=_user_out(user), needs_mfa=False)
 
 
 @router.post("/logout")

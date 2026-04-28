@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { ChatForm } from './components/ChatForm'
 import { ResponsePanel } from './components/ResponsePanel'
 import { Login } from './components/Login'
+import { MfaSetup } from './components/MfaSetup'
+import { MfaChallenge } from './components/MfaChallenge'
 import { Header } from './components/Header'
 import { api } from './api'
 import type { AuthStatus, AuthUser, ChatResponse } from './types'
@@ -98,10 +100,54 @@ function App() {
     )
   }
 
-  if (authStatus === 'unauthenticated' || !user) {
+  function onMfaRequired(action: 'enroll' | 'challenge') {
+    setAuthStatus(action === 'enroll' ? 'mfa-enroll' : 'mfa-challenge')
+  }
+
+  async function onCancelMfa() {
+    await api.logout()
+    setUser(null)
+    setAuthStatus('unauthenticated')
+  }
+
+  if (authStatus === 'unauthenticated') {
     return (
       <div className="app">
-        <Login onAuthenticated={onAuthenticated} />
+        <Login
+          onAuthenticated={onAuthenticated}
+          onMfaRequired={onMfaRequired}
+        />
+      </div>
+    )
+  }
+
+  if (authStatus === 'mfa-enroll') {
+    return (
+      <div className="app">
+        <MfaSetup onAuthenticated={onAuthenticated} onCancel={onCancelMfa} />
+      </div>
+    )
+  }
+
+  if (authStatus === 'mfa-challenge') {
+    return (
+      <div className="app">
+        <MfaChallenge
+          onAuthenticated={onAuthenticated}
+          onCancel={onCancelMfa}
+        />
+      </div>
+    )
+  }
+
+  if (!user) {
+    // authenticated but user not loaded — should not happen, fall back to login.
+    return (
+      <div className="app">
+        <Login
+          onAuthenticated={onAuthenticated}
+          onMfaRequired={onMfaRequired}
+        />
       </div>
     )
   }

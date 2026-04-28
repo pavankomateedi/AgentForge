@@ -65,8 +65,21 @@ export type AuthUser = {
 }
 
 export type LoginResponse = {
-  user: AuthUser
+  user: AuthUser | null
   needs_mfa: boolean
+  mfa_action: 'enroll' | 'challenge' | null
 }
 
-export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated'
+export type MfaSetupResponse = {
+  provisioning_uri: string
+  secret: string
+  issuer: string
+  account_name: string
+}
+
+export type AuthStatus =
+  | 'loading'
+  | 'unauthenticated'
+  | 'mfa-enroll'
+  | 'mfa-challenge'
+  | 'authenticated'

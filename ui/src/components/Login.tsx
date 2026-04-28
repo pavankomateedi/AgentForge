@@ -4,9 +4,10 @@ import type { AuthUser } from '../types'
 
 type Props = {
   onAuthenticated: (user: AuthUser) => void
+  onMfaRequired: (action: 'enroll' | 'challenge') => void
 }
 
-export function Login({ onAuthenticated }: Props) {
+export function Login({ onAuthenticated, onMfaRequired }: Props) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -23,7 +24,11 @@ export function Login({ onAuthenticated }: Props) {
       setError(res.message)
       return
     }
-    onAuthenticated(res.data.user)
+    if (res.data.needs_mfa && res.data.mfa_action) {
+      onMfaRequired(res.data.mfa_action)
+      return
+    }
+    if (res.data.user) onAuthenticated(res.data.user)
   }
 
   return (

@@ -1,6 +1,11 @@
 // API helpers. All requests include credentials so the session cookie rides along.
 
-import type { AuthUser, ChatResponse, LoginResponse } from './types'
+import type {
+  AuthUser,
+  ChatResponse,
+  LoginResponse,
+  MfaSetupResponse,
+} from './types'
 
 async function request<T>(
   path: string,
@@ -46,6 +51,21 @@ export const api = {
       body: JSON.stringify({ username, password }),
     }),
   logout: () => request<{ status: string }>('/auth/logout', { method: 'POST' }),
+  mfaSetup: () =>
+    request<MfaSetupResponse>('/auth/mfa/setup', {
+      method: 'POST',
+      body: '{}',
+    }),
+  mfaVerifySetup: (code: string) =>
+    request<LoginResponse>('/auth/mfa/verify-setup', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+  mfaChallenge: (code: string) =>
+    request<LoginResponse>('/auth/mfa/challenge', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
   chat: (patientId: string, message: string) =>
     request<ChatResponse>('/chat', {
       method: 'POST',
