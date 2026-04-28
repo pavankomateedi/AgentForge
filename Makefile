@@ -9,6 +9,12 @@ dev:
 test:
 	pytest -v
 
+eval:
+	pytest
+
+eval-live:
+	pytest -m live -v
+
 smoke:
 	@curl -s http://127.0.0.1:$${PORT:-8000}/health
 	@echo
