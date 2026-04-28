@@ -20,6 +20,55 @@ class EmailSendError(Exception):
     pass
 
 
+async def _post_to_resend(
+    api_key: str,
+    payload: dict,
+    *,
+    timeout: float = 10.0,
+) -> None:
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            res = await client.post(
+                RESEND_API_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+        if res.status_code >= 400:
+            raise EmailSendError(f"Resend API {res.status_code}: {res.text}")
+    except httpx.HTTPError as exc:
+        raise EmailSendError(f"Resend transport error: {exc}") from exc
+
+
+async def send_test_email(
+    *,
+    api_key: str | None,
+    from_addr: str | None,
+    to_addr: str,
+) -> None:
+    """Tiny health-check email. Used by `python -m agent.cli send-test-email`."""
+    if not api_key or not from_addr:
+        raise EmailSendError(
+            "RESEND_API_KEY and RESEND_FROM must both be set "
+            "to send a test email."
+        )
+    payload = {
+        "from": from_addr,
+        "to": [to_addr],
+        "subject": "Clinical Co-Pilot — Resend test",
+        "html": (
+            "<p style='font-family:-apple-system,sans-serif;'>"
+            "Resend is configured correctly. You can ignore this message."
+            "</p>"
+        ),
+        "text": "Resend is configured correctly. You can ignore this message.",
+    }
+    await _post_to_resend(api_key, payload)
+    log.info("test email sent to %s", to_addr)
+
+
 def _password_reset_html(reset_url: str) -> str:
     return f"""<!doctype html>
 <html><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color:#0f172a; max-width:560px; margin:0 auto; padding:24px;">
@@ -70,18 +119,5 @@ async def send_password_reset_email(
         "html": _password_reset_html(reset_url),
         "text": _password_reset_text(reset_url),
     }
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            res = await client.post(
-                RESEND_API_URL,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
-        if res.status_code >= 400:
-            raise EmailSendError(f"Resend API {res.status_code}: {res.text}")
-        log.info("password-reset email sent to %s", to_addr)
-    except httpx.HTTPError as exc:
-        raise EmailSendError(f"Resend transport error: {exc}") from exc
+    await _post_to_resend(api_key, payload)
+    log.info("password-reset email sent to %s", to_addr)

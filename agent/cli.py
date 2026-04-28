@@ -14,7 +14,9 @@ import argparse
 import getpass
 import sys
 
-from agent import auth
+import asyncio
+
+from agent import auth, email as email_module
 from agent.config import get_config
 from agent.db import connect, init_db
 
@@ -112,6 +114,29 @@ def cmd_reset_password(args: argparse.Namespace) -> None:
     print(f"Password reset for {args.username}.")
 
 
+def cmd_send_test_email(args: argparse.Namespace) -> None:
+    config = get_config()
+    if not config.resend_api_key or not config.resend_from:
+        print(
+            "ERROR: RESEND_API_KEY and RESEND_FROM must both be set in .env "
+            "(or in the Railway Variables tab) before sending a test email.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    try:
+        asyncio.run(
+            email_module.send_test_email(
+                api_key=config.resend_api_key,
+                from_addr=config.resend_from,
+                to_addr=args.email,
+            )
+        )
+    except email_module.EmailSendError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        sys.exit(1)
+    print(f"Test email sent to {args.email}.")
+
+
 def cmd_reset_mfa(args: argparse.Namespace) -> None:
     config = get_config()
     init_db(config.database_url)
@@ -170,6 +195,13 @@ def main() -> None:
     )
     p_resetmfa.add_argument("username")
     p_resetmfa.set_defaults(func=cmd_reset_mfa)
+
+    p_test_email = sub.add_parser(
+        "send-test-email",
+        help="Send a test email via Resend to verify your setup. Requires RESEND_API_KEY + RESEND_FROM.",
+    )
+    p_test_email.add_argument("email", help="Recipient email address")
+    p_test_email.set_defaults(func=cmd_send_test_email)
 
     args = parser.parse_args()
     args.func(args)
