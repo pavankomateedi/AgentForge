@@ -26,55 +26,218 @@ The remainder of this document specifies each component, the data flow, the veri
 
 ---
 
+## Design Decisions Against the AgentForge Framework
+
+This section maps the architecture to the AgentForge constraint framework explicitly. Each answer is short by design; rationale and detail live in the numbered sections below and in `AUDIT.md` / `USERS.md`. The intent is that a reviewer can scan this in five minutes and decide whether the rest of the document is worth their time.
+
+### Phase 1 — Constraints
+
+**1. Domain Selection.**
+- **Domain:** Healthcare — outpatient primary care, OpenEMR-hosted.
+- **Use cases:** Five, enumerated and capability-traced in `USERS.md`: pre-visit briefing (UC-1), changes-since-last-visit (UC-2), lab interpretation in context (UC-3), medication reconciliation (UC-4), authorization-boundary refusal (UC-5).
+- **Verification requirements:** Source-attribution on every clinical claim; deterministic post-generation verifier (§2.5); structural patient-subject locking (§6.4); refusal on missing data (§4); HIPAA-aligned audit trail (§2.6, `AUDIT.md` §5).
+- **Data sources:** OpenEMR FHIR R4 API exclusively. No direct DB access for the agent. Driven by `AUDIT.md` finding 1 (ACL is the trust boundary).
+
+**2. Scale & Performance.**
+- **Volume:** ~25 queries/clinical-day/PCP × 220 days ≈ 5,500/yr/user. Week 1 target: 100 users; cost-modeled to 100K (§8.3).
+- **Latency:** First content < 5s; full response < 12s warm cache, < 15s cold (§3). Bottleneck is FHIR translation (`AUDIT.md` §2.2).
+- **Concurrency:** Stateless agent service; horizontally scalable. Single VM viable to ~100 users; multi-AZ at 1K; regional sharding at 100K (§8.3).
+- **LLM cost:** ~$0.012/query warm, ~$0.020 cold; per-user daily token budget cap (§8.4).
+
+**3. Reliability Requirements.**
+- **Cost of a wrong answer:** Clinical safety. A hallucinated medication, dose, or lab value can cause patient harm. The agent is built to refuse rather than guess (§4, §10).
+- **Non-negotiable verification:** Deterministic verifier with source-id tag matching (§2.5); domain-rule engine for thresholds and dosage ranges; patient-subject locking enforced by the service, not the LLM (§6.4).
+- **Human-in-the-loop:** Clinician is the decision-maker. The agent presents evidence; it does not recommend (UC-3). Refusal and structured-data fallback are first-class UI states (§4).
+- **Audit/compliance:** Append-only audit log independent of observability, designed to export into OpenEMR's `audit_master` (§2.6). Self-hosted observability for PHI containment (§2.7).
+
+**4. Team & Skill Constraints.**
+- **Framework familiarity:** Solo build. Comfortable with Python/FastAPI; LangGraph is new but chosen specifically because its explicit-graph mental model keeps the verification story inspectable, not because of prior fluency.
+- **Domain experience:** Limited direct clinical experience. Mitigated by (a) scoping to outpatient continuity-of-care data that the FHIR API exposes cleanly, (b) the eval suite as a clinical-correctness proxy (§5), and (c) a documented gap that real deployment requires physician-panel review (§10).
+- **Eval/testing comfort:** Pytest-based eval harness, CI-gated; treats correctness as a regression-tested property, not a one-time check (§5.4).
+
+### Phase 2 — Architecture Discovery
+
+**5. Agent Framework Selection.**
+- **Choice:** LangGraph. Single agent, not multi-agent. Reason: verification needs to be a *named node* in the graph, not a probabilistic step inside an autonomous loop. CrewAI / multi-agent introduces coordination overhead without solving the verification problem; ReAct loops obscure where verification happens (§2.3).
+- **State management:** Per-request state passed by client. No cross-session memory. Patient subject is locked at conversation start (§6.4).
+- **Tool integration:** Nine typed tools (§2.4), each a thin FHIR client with structured I/O. The LLM cannot construct arbitrary FHIR queries.
+
+**6. LLM Selection.**
+- **Choice:** Claude Sonnet 4.5 via Anthropic API.
+- **Function calling:** Required and well-supported. Every retrieval is an Anthropic tool-use call against a typed tool.
+- **Context window:** Sonnet's ~200K is comfortable; per-turn retrieval bundle is capped at 4K tokens with explicit truncation (§8.4).
+- **Cost per query:** ~$0.012 warm with prompt caching on the static system prompt and tools schema; cold ~$0.020 (§8.1).
+- **Why not GPT-5 / open source:** BAA treatability, structured-output reliability for verification tags, and Anthropic's prompt-cache pricing. Open-source models become viable substitutes at the Plan and Classify nodes once we hit ~10K users (§8.3 model-tiering note).
+
+**7. Tool Design.**
+- **Tools:** Nine read-only FHIR-backed tools enumerated in §2.4, plus one local rule-engine tool (`evaluate_clinical_thresholds`).
+- **External dependencies:** OpenEMR FHIR R4 only. No third-party medical APIs in week 1; RxNorm normalization is flagged as a week-2 stretch (`AUDIT.md` §4.1, §9).
+- **Mock vs real:** Synthetic demo patients seeded by `make seed-demo-data`; no real PHI anywhere in the repo or deployment (README "Security & Compliance Notes").
+- **Per-tool error handling:** 403, 404/empty, timeout, and tool-failure each surface as a distinct, structured signal — never silently inferred (§4).
+
+**8. Observability Strategy.**
+- **Choice:** Langfuse, **self-hosted**. PHI containment is the driving constraint; SaaS observability is unacceptable under the BAA logic in `AUDIT.md` §5.4.
+- **Metrics:** Generations (model, tokens, cost, latency), spans (tool calls, verifier runs), scores (verification pass/fail, eval), metadata (user role, use-case classification) — §2.7.
+- **Real-time:** Langfuse dashboards + a `/metrics` Prometheus-style endpoint on the agent service (§2.2).
+- **Cost tracking:** Per-request, per-user, per-use-case attribution; daily per-user budget caps (§8.4).
+
+**9. Eval Approach.**
+- **Correctness measurement:** Three case sources — hand-curated golden cases per use case (§5.1), adversarial probes for injection / leakage / refusal (§5.2), and property-based assertions for attribution, latency, and cost (§5.3).
+- **Ground truth:** Synthetic demo patients with known structured data; expected facts and forbidden facts spelled out per case.
+- **Automation:** Pytest-driven, runs in CI on every PR; failure conditions are explicit and merge-blocking (§5.4).
+- **Drift tracking:** Eval scores written back to Langfuse so we see regressions over time, not just at gate time.
+
+**10. Verification Design.**
+- **Claims that must be verified:** Every clinical fact in the response — medication names, lab values, diagnoses, dates, encounter references — must carry an inline `<source id="..."/>` tag (§2.5).
+- **Fact-check sources:** The turn's retrieval bundle (no external lookup); a domain-rule table for clinical thresholds and dosage ranges.
+- **Thresholds:** Deterministic match, not statistical confidence. A claim either resolves to a real source with a matching value, or it fails.
+- **Escalation:** Failed verification → regenerate once with the failure reason in context → if it fails again, refuse and render a structured data panel with links into OpenEMR (§4).
+
+### Phase 3 — Post-Stack Refinement
+
+**11. Failure Mode Analysis.**
+The full failure-mode table is in §4. Operating principle: **the clinical user always sees something useful, never sees a stack trace, and is never lied to.** Concretely — failed FHIR call surfaces as "I couldn't retrieve X," not a guess; failed verification surfaces as a structured data panel, not an unverified narrative; an LLM provider outage degrades the agent into a structured-retrieval tool with links into OpenEMR pages. A per-user daily token budget (§8.4) bounds a single misuse from running up bills, and an in-process FHIR cache (`AUDIT.md` §2.2 mitigation) handles upstream tail latency.
+
+**12. Security Considerations.**
+- **Prompt injection:** All retrieved PHI is treated as data, never as instructions. Chat UI escapes everything via React's default JSX rendering (no `dangerouslySetInnerHTML`). Patient subject is locked structurally so a clever prompt cannot redirect the agent to a different patient (§6.4).
+- **Data leakage:** Per-request state; no cross-conversation memory; ACL enforced upstream of the agent in OpenEMR's PHP layer (§6, `AUDIT.md` §1.2).
+- **API key management:** No service account with PHI access. Per-user, short-lived (5-min) OAuth2 tokens for FHIR. Anthropic API key in env and never logged. Agent service holds no static credentials with PHI scope (Trust Boundary 3, §1).
+- **Audit logging:** Append-only, independent of Langfuse, designed to export into OpenEMR's `audit_master` (§2.6).
+
+**13. Testing Strategy.**
+- **Unit:** Tool tests with FHIR client mocks; verifier tests with synthetic source bundles (positive, negative, tampered).
+- **Integration:** LangGraph state-transition tests against a stubbed FHIR server.
+- **Adversarial:** Injection, cross-patient leakage, out-of-scope, and authorization probes in the eval suite (§5.2).
+- **Regression:** Golden cases gate every PR; latency and token-cost properties also gate (§5.4).
+
+**14. Open Source Planning.**
+- **Released artifacts:** Full stack — agent service, UI, eval suite, deployment config — in this repo.
+- **License:** GPL v3, preserved from the OpenEMR fork; added code is GPL v3 to remain compatible (README "License").
+- **Documentation:** `README.md` (setup), `AUDIT.md` (host audit), `USERS.md` (use cases), `ARCHITECTURE.md` (this document), plus the eval suite as executable specification.
+- **Community engagement:** Out of scope for week 1; the case-study scope is the bar.
+
+**15. Deployment & Operations.**
+- **Hosting:** Oracle Cloud Always-Free ARM VM, Docker Compose. Tuesday fallback: local + Cloudflare Tunnel. Caddy provides TLS via Let's Encrypt (§7, README).
+- **CI/CD:** GitHub Actions — eval suite + unit tests on push to `main`; image build + SSH-deploy on tag (§7).
+- **Monitoring/alerting:** Langfuse dashboards + `/metrics` endpoint. Page-level alerting is week-2 work; week 1 ships the data plane.
+- **Rollback:** Image-tagged Docker pulls; `docker compose pull <prev-tag> && up -d`. Manual; tested as part of the deploy runbook.
+
+**16. Iteration Planning.**
+- **Feedback collection:** In-app thumbs-up/down per response, written to Langfuse as a score and joined to the trace. Week-1 stretch goal.
+- **Eval-driven cycle:** A failing eval case is the unit of improvement. Fix → green eval → merge. Drift in scores triggers investigation, not auto-revert.
+- **Prioritization:** Bound by case-study deliverables first; thereafter by the verification gaps the eval suite surfaces (the suite tells us what to build next).
+- **Long-term maintenance:** Out of scope for week 1; a single-author project. Flagged in §10 ("what would change before a real physician relies on this").
+
+---
+
 ## 1. System Topology
 
-```
-                    Dr. Chen's browser
-                          │
-                          │ HTTPS, OpenEMR session
-                          ▼
-        ┌─────────────────────────────────────┐
-        │  OpenEMR (Apache + PHP-FPM)         │
-        │  ┌────────────────────────────────┐ │
-        │  │ Chat UI module (React bundle)  │ │ ◄── /interface/modules/custom_modules/clinical-copilot/
-        │  │  - mounts in OpenEMR page      │ │
-        │  │  - obtains OAuth2 token        │ │
-        │  └────────────────┬───────────────┘ │
-        │                   │                 │
-        │  ┌────────────────▼───────────────┐ │
-        │  │ OAuth2 Authorization Server    │ │
-        │  └────────────────────────────────┘ │
-        │  ┌────────────────────────────────┐ │
-        │  │ FHIR R4 API (acl_check on each)│◄┼── only data access path for agent
-        │  └────────────────────────────────┘ │
-        └─────────────────────────────────────┘
-                          ▲
-                          │ FHIR R4 over HTTPS
-                          │ user's OAuth2 token
-                          │
-        ┌─────────────────┴───────────────────┐
-        │  Agent Service (Python / FastAPI)   │
-        │  ┌────────────────────────────────┐ │
-        │  │ LangGraph state machine        │ │
-        │  │   ▸ Plan → Retrieve → Reason   │ │
-        │  │     → Verify → Respond         │ │
-        │  └────────────────────────────────┘ │
-        │  ┌────────────────────────────────┐ │
-        │  │ Tools (FHIR retrieval + rules) │ │
-        │  └────────────────────────────────┘ │
-        │  ┌────────────────────────────────┐ │
-        │  │ Verifier (deterministic)       │ │
-        │  └────────────────────────────────┘ │
-        │  ┌────────────────────────────────┐ │
-        │  │ Audit log (append-only)        │ │
-        │  └────────────────────────────────┘ │
-        └─────────┬────────────────┬──────────┘
-                  │                │
-                  ▼                ▼
-        ┌─────────────────┐  ┌──────────────────┐
-        │ Anthropic API   │  │ Langfuse (self-  │
-        │ (Claude 4.5)    │  │ hosted)          │
-        └─────────────────┘  └──────────────────┘
+```mermaid
+flowchart TB
+    %% ===== PERSONA =====
+    subgraph PERSONA["Persona"]
+        DOC["Dr. Maya Chen, MD<br/>Primary Care Physician<br/>60-90 sec between rooms"]
+    end
+
+    %% ===== FRONTEND =====
+    subgraph FRONTEND["Frontend (browser-side)"]
+        BROWSER["Web Browser<br/>HTTPS + session cookie"]
+        UI["Clinical Co-Pilot UI<br/>React + Vite<br/>(OpenEMR custom module)"]
+    end
+
+    %% ===== EDGE =====
+    subgraph EDGE["Edge"]
+        CADDY["Caddy<br/>TLS termination<br/>reverse proxy"]
+    end
+
+    %% ===== BACKEND: OpenEMR =====
+    subgraph OPENEMR["Backend — OpenEMR (Apache + PHP-FPM)"]
+        OAUTH["OAuth2 Server<br/>SMART-on-FHIR scopes<br/>5-min user tokens"]
+        ACL["acl_check()<br/>application-layer ACL"]
+        FHIR["FHIR R4 API<br/>(read-only)"]
+    end
+
+    %% ===== BACKEND: Agent Service =====
+    subgraph AGENT["Backend — Agent Service (Python + FastAPI)"]
+        CHAT["/chat endpoint<br/>(stateless, per-request)"]
+        subgraph GRAPH["LangGraph state machine"]
+            direction LR
+            PLAN[Plan] --> RETRIEVE[Retrieve] --> REASON[Reason] --> VERIFY[Verify] --> RESPOND[Respond]
+            VERIFY -.->|"fail, regen 1x"| REASON
+        end
+        TOOLS["Tool registry<br/>9 FHIR tools + rule engine<br/>(patient-id locked)"]
+        VERIFIER["Verifier<br/>deterministic source-id matcher<br/>(pure Python)"]
+        AUDIT["Audit log writer<br/>append-only"]
+    end
+
+    %% ===== DATA =====
+    subgraph DATA["Data layer"]
+        EMRDB[("MariaDB<br/>OpenEMR records")]
+        AUDITDB[("Audit DB<br/>MariaDB, separate volume")]
+        LFDB[("Postgres<br/>Langfuse backing")]
+    end
+
+    %% ===== OBSERVABILITY =====
+    subgraph OBS["Observability (self-hosted)"]
+        LANGFUSE["Langfuse<br/>traces • scores • cost"]
+    end
+
+    %% ===== EXTERNAL =====
+    subgraph EXT["External LLM (BAA-covered)"]
+        ANTHROPIC["Anthropic API<br/>Claude Opus 4.7"]
+    end
+
+    %% ----- Persona → Frontend -----
+    DOC -->|"opens chart, asks question"| BROWSER
+    BROWSER --- UI
+
+    %% ----- Frontend → Edge → Backend (HTTPS ingress) -----
+    UI -->|"HTTPS"| CADDY
+    CADDY -->|"proxy /oauth/*"| OAUTH
+    CADDY -->|"proxy /apis/default/fhir/*"| FHIR
+    CADDY -->|"proxy /chat"| CHAT
+
+    %% ----- OpenEMR internal -----
+    OAUTH --> ACL
+    FHIR -->|"every read gated"| ACL
+    ACL --> EMRDB
+
+    %% ----- Agent service internal -----
+    CHAT --> PLAN
+    RETRIEVE --> TOOLS
+    VERIFY --> VERIFIER
+    CHAT --> AUDIT
+
+    %% ----- Cross-service: Agent → OpenEMR FHIR (the only PHI path) -----
+    TOOLS -->|"FHIR R4<br/>user's OAuth token<br/>(only PHI path for agent)"| FHIR
+
+    %% ----- External LLM (egress) -----
+    PLAN -->|"tool-use call"| ANTHROPIC
+    REASON -->|"text-gen call"| ANTHROPIC
+
+    %% ----- Data writes -----
+    AUDIT --> AUDITDB
+
+    %% ----- Observability -----
+    GRAPH -.->|"per-node traces<br/>+ verification scores"| LANGFUSE
+    LANGFUSE --> LFDB
+
+    %% ----- Styling (no red backgrounds) -----
+    classDef persona fill:#FEF3C7,stroke:#92400E,color:#000
+    classDef frontend fill:#DBEAFE,stroke:#1D4ED8,color:#000
+    classDef edge fill:#F1F5F9,stroke:#475569,color:#000
+    classDef backend fill:#D1FAE5,stroke:#065F46,color:#000
+    classDef data fill:#EDE9FE,stroke:#5B21B6,color:#000
+    classDef external fill:#CCFBF1,stroke:#0F766E,color:#000
+    classDef obs fill:#E0E7FF,stroke:#3730A3,color:#000
+
+    class DOC persona
+    class BROWSER,UI frontend
+    class CADDY edge
+    class OAUTH,ACL,FHIR,CHAT,PLAN,RETRIEVE,REASON,VERIFY,RESPOND,TOOLS,VERIFIER,AUDIT backend
+    class EMRDB,AUDITDB,LFDB data
+    class ANTHROPIC external
+    class LANGFUSE obs
 ```
 
 ### Trust Boundaries (numbered for the interview question)
@@ -113,28 +276,15 @@ Boundary 3 is the load-bearing one. The audit identified that ACL is enforced in
 
 ### 2.3 LangGraph State Machine
 
-```
-   ┌────────┐
-   │  Plan  │  ← LLM decides which tools to call
-   └───┬────┘
-       │
-   ┌───▼────────┐
-   │  Retrieve  │  ← parallel FHIR calls; returns structured records
-   └───┬────────┘
-       │
-   ┌───▼────────┐
-   │   Reason   │  ← LLM generates response with source-id tags
-   └───┬────────┘
-       │
-   ┌───▼────────┐
-   │   Verify   │  ← deterministic pass/fail
-   └───┬────────┘
-       │
-       ├── pass → ┌────────┐
-       │         │Respond │
-       │         └────────┘
-       │
-       └── fail → either regenerate (1×) or refuse with explanation
+```mermaid
+flowchart TD
+    Start([Request]) --> Plan["Plan<br/>LLM picks which tools to call"]
+    Plan --> Retrieve["Retrieve<br/>parallel FHIR calls<br/>structured records w/ provenance"]
+    Retrieve --> Reason["Reason<br/>LLM generates response<br/>with source-id tags"]
+    Reason --> Verify{"Verify<br/>(deterministic)"}
+    Verify -->|"pass"| Respond([Respond])
+    Verify -->|"fail, 1st time → regenerate"| Reason
+    Verify -->|"fail, 2nd time"| Refuse["Refuse<br/>+ structured data panel"]
 ```
 
 The graph is explicit and inspectable. Langfuse traces show every transition, which is what makes the verification claim defensible.
