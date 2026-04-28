@@ -7,6 +7,8 @@ deployed, this module is replaced by an OAuth2 client.
 
 from __future__ import annotations
 
+import hashlib
+import secrets
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -17,7 +19,7 @@ import pyotp
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
-from agent import audit
+from agent import audit, email as email_module
 from agent.config import Config, get_config
 from agent.db import connect
 
@@ -30,6 +32,8 @@ MAX_FAILED_ATTEMPTS = 5
 LOCKOUT_DURATION_SECONDS = 900        # 15 minutes
 MFA_PENDING_WINDOW_SECONDS = 300      # 5 minutes to complete MFA after password
 TOTP_ISSUER = "Clinical Co-Pilot"
+PASSWORD_RESET_TOKEN_TTL_SECONDS = 3600  # 1 hour
+PASSWORD_MIN_LENGTH = 8
 
 
 # --- Domain ---
@@ -409,6 +413,17 @@ class MfaCodeIn(BaseModel):
     code: str = Field(..., min_length=6, max_length=10)
 
 
+class PasswordResetRequestIn(BaseModel):
+    email: str = Field(..., min_length=3, max_length=320)
+
+
+class PasswordResetConfirmIn(BaseModel):
+    token: str = Field(..., min_length=20, max_length=512)
+    new_password: str = Field(
+        ..., min_length=PASSWORD_MIN_LENGTH, max_length=512
+    )
+
+
 # --- Routes ---
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -599,6 +614,141 @@ def mfa_verify_setup(
     user = get_user_by_id(config.database_url, user_id)
     assert user is not None
     return LoginOut(user=_user_out(user), needs_mfa=False)
+
+
+# --- Password reset ---
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+@router.post("/password-reset/request")
+async def password_reset_request(
+    payload: PasswordResetRequestIn,
+    request: Request,
+    config: Config = Depends(get_config),
+) -> dict[str, str]:
+    """Request a password-reset email. Returns 200 unconditionally to avoid
+    leaking whether an account exists for that address."""
+    ip = _client_ip(request)
+    email_normalized = payload.email.strip().lower()
+    user = get_user_by_email(config.database_url, email_normalized)
+
+    response: dict[str, str] = {"status": "ok"}
+
+    if user is None or not user.is_active:
+        audit.record(
+            config.database_url,
+            audit.AuditEvent.PASSWORD_RESET_REQUESTED,
+            ip_address=ip,
+            details={"email": email_normalized, "result": "no_active_user"},
+        )
+        return response
+
+    token = secrets.token_urlsafe(32)
+    token_hash = _hash_token(token)
+    expires_at = _now() + timedelta(seconds=PASSWORD_RESET_TOKEN_TTL_SECONDS)
+
+    with connect(config.database_url) as conn:
+        conn.execute(
+            """INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+               VALUES (?, ?, ?)""",
+            (user.id, token_hash, _format_dt(expires_at)),
+        )
+        conn.commit()
+
+    audit.record(
+        config.database_url,
+        audit.AuditEvent.PASSWORD_RESET_REQUESTED,
+        user_id=user.id,
+        ip_address=ip,
+    )
+
+    reset_url = f"{config.app_base_url.rstrip('/')}/?reset_token={token}"
+    try:
+        await email_module.send_password_reset_email(
+            api_key=config.resend_api_key,
+            from_addr=config.resend_from,
+            to_addr=user.email,
+            reset_url=reset_url,
+        )
+    except email_module.EmailSendError:
+        # Swallow — don't leak delivery failure to caller. Log was already done.
+        pass
+
+    return response
+
+
+@router.post("/password-reset/confirm")
+def password_reset_confirm(
+    payload: PasswordResetConfirmIn,
+    request: Request,
+    config: Config = Depends(get_config),
+) -> dict[str, str]:
+    token_hash = _hash_token(payload.token)
+    ip = _client_ip(request)
+
+    with connect(config.database_url) as conn:
+        row = conn.execute(
+            """SELECT id, user_id, expires_at, used_at
+               FROM password_reset_tokens
+               WHERE token_hash = ?""",
+            (token_hash,),
+        ).fetchone()
+
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This reset link is not valid. Request a new one.",
+        )
+
+    if row["used_at"] is not None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This reset link has already been used. Request a new one.",
+        )
+
+    expires_at = _parse_dt(row["expires_at"])
+    if expires_at is None or _now() > expires_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This reset link has expired. Request a new one.",
+        )
+
+    user = get_user_by_id(config.database_url, row["user_id"])
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This account is no longer active.",
+        )
+
+    new_hash = hash_password(payload.new_password)
+    with connect(config.database_url) as conn:
+        conn.execute(
+            """UPDATE users
+               SET password_hash = ?,
+                   failed_login_attempts = 0,
+                   locked_until = NULL,
+                   updated_at = datetime('now')
+               WHERE id = ?""",
+            (new_hash, user.id),
+        )
+        conn.execute(
+            """UPDATE password_reset_tokens
+               SET used_at = datetime('now')
+               WHERE id = ?""",
+            (row["id"],),
+        )
+        conn.commit()
+
+    audit.record(
+        config.database_url,
+        audit.AuditEvent.PASSWORD_RESET_COMPLETED,
+        user_id=user.id,
+        ip_address=ip,
+    )
+
+    return {"status": "ok"}
 
 
 @router.post("/mfa/challenge", response_model=LoginOut)

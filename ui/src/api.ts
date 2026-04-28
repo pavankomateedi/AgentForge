@@ -66,6 +66,16 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ code }),
     }),
+  passwordResetRequest: (email: string) =>
+    request<{ status: string }>('/auth/password-reset/request', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+  passwordResetConfirm: (token: string, newPassword: string) =>
+    request<{ status: string }>('/auth/password-reset/confirm', {
+      method: 'POST',
+      body: JSON.stringify({ token, new_password: newPassword }),
+    }),
   chat: (patientId: string, message: string) =>
     request<ChatResponse>('/chat', {
       method: 'POST',

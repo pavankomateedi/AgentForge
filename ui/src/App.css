@@ -508,6 +508,22 @@ button.link:hover {
   margin-top: 8px;
 }
 
+.success {
+  margin: 0 0 12px;
+  padding: 12px 14px;
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+  color: var(--success-text);
+  border-radius: var(--radius);
+  font-size: 14px;
+}
+
+.hint-warn {
+  color: var(--warn-text);
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+
 .actions-row {
   display: flex;
   gap: 10px;

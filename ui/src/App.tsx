@@ -4,16 +4,32 @@ import { ResponsePanel } from './components/ResponsePanel'
 import { Login } from './components/Login'
 import { MfaSetup } from './components/MfaSetup'
 import { MfaChallenge } from './components/MfaChallenge'
+import { PasswordResetRequest } from './components/PasswordResetRequest'
+import { PasswordResetConfirm } from './components/PasswordResetConfirm'
 import { Header } from './components/Header'
 import { api } from './api'
 import type { AuthStatus, AuthUser, ChatResponse } from './types'
 import './App.css'
+
+function getResetTokenFromUrl(): string | null {
+  if (typeof window === 'undefined') return null
+  const params = new URLSearchParams(window.location.search)
+  return params.get('reset_token')
+}
+
+function clearResetTokenFromUrl(): void {
+  if (typeof window === 'undefined') return
+  const url = new URL(window.location.href)
+  url.searchParams.delete('reset_token')
+  window.history.replaceState({}, '', url.toString())
+}
 
 function App() {
   // ---- Auth state ----
   const [authStatus, setAuthStatus] = useState<AuthStatus>('loading')
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [resetToken, setResetToken] = useState<string | null>(null)
 
   // ---- Chat state ----
   const [patientId, setPatientId] = useState('demo-001')
@@ -24,8 +40,16 @@ function App() {
   const [error, setError] = useState<string | null>(null)
   const [showResult, setShowResult] = useState(false)
 
-  // On mount: check existing session.
+  // On mount: check for a reset_token in the URL first, otherwise check session.
   useEffect(() => {
+    const token = getResetTokenFromUrl()
+    if (token) {
+      setResetToken(token)
+      setAuthStatus('password-reset-confirm')
+      // Strip the token from the URL so a refresh / share doesn't re-trigger.
+      clearResetTokenFromUrl()
+      return
+    }
     let cancelled = false
     ;(async () => {
       const res = await api.me()
@@ -110,12 +134,22 @@ function App() {
     setAuthStatus('unauthenticated')
   }
 
+  function onForgotPassword() {
+    setAuthStatus('password-reset-request')
+  }
+
+  function onBackToLogin() {
+    setResetToken(null)
+    setAuthStatus('unauthenticated')
+  }
+
   if (authStatus === 'unauthenticated') {
     return (
       <div className="app">
         <Login
           onAuthenticated={onAuthenticated}
           onMfaRequired={onMfaRequired}
+          onForgotPassword={onForgotPassword}
         />
       </div>
     )
@@ -140,6 +174,25 @@ function App() {
     )
   }
 
+  if (authStatus === 'password-reset-request') {
+    return (
+      <div className="app">
+        <PasswordResetRequest onBackToLogin={onBackToLogin} />
+      </div>
+    )
+  }
+
+  if (authStatus === 'password-reset-confirm' && resetToken) {
+    return (
+      <div className="app">
+        <PasswordResetConfirm
+          token={resetToken}
+          onBackToLogin={onBackToLogin}
+        />
+      </div>
+    )
+  }
+
   if (!user) {
     // authenticated but user not loaded — should not happen, fall back to login.
     return (
@@ -147,6 +200,7 @@ function App() {
         <Login
           onAuthenticated={onAuthenticated}
           onMfaRequired={onMfaRequired}
+          onForgotPassword={onForgotPassword}
         />
       </div>
     )

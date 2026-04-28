@@ -82,4 +82,6 @@ export type AuthStatus =
   | 'unauthenticated'
   | 'mfa-enroll'
   | 'mfa-challenge'
+  | 'password-reset-request'
+  | 'password-reset-confirm'
   | 'authenticated'

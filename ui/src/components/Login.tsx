@@ -5,9 +5,14 @@ import type { AuthUser } from '../types'
 type Props = {
   onAuthenticated: (user: AuthUser) => void
   onMfaRequired: (action: 'enroll' | 'challenge') => void
+  onForgotPassword: () => void
 }
 
-export function Login({ onAuthenticated, onMfaRequired }: Props) {
+export function Login({
+  onAuthenticated,
+  onMfaRequired,
+  onForgotPassword,
+}: Props) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -88,7 +93,9 @@ export function Login({ onAuthenticated, onMfaRequired }: Props) {
         </form>
 
         <p className="footnote">
-          Forgot your password? Contact your administrator.
+          <button type="button" className="link" onClick={onForgotPassword}>
+            Forgot your password?
+          </button>
         </p>
       </section>
     </div>
