@@ -96,7 +96,10 @@ label {
 }
 
 select,
-textarea {
+textarea,
+input[type='text'],
+input[type='password'],
+input[type='email'] {
   width: 100%;
   padding: 12px 14px;
   border: 1px solid var(--border-strong);
@@ -125,19 +128,28 @@ textarea {
 }
 
 select:hover,
-textarea:hover {
+textarea:hover,
+input[type='text']:hover,
+input[type='password']:hover,
+input[type='email']:hover {
   border-color: #94a3b8;
 }
 
 select:focus,
-textarea:focus {
+textarea:focus,
+input[type='text']:focus,
+input[type='password']:focus,
+input[type='email']:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 4px var(--accent-ring);
 }
 
 select:disabled,
-textarea:disabled {
+textarea:disabled,
+input[type='text']:disabled,
+input[type='password']:disabled,
+input[type='email']:disabled {
   background: #f1f5f9;
   color: var(--text-muted);
   cursor: not-allowed;
@@ -365,6 +377,144 @@ button.primary:disabled {
   }
 }
 
+/* Login page */
+
+.login-page {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  max-width: 440px;
+  margin: 0 auto;
+  padding-top: 16px;
+}
+
+.login-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.login-header .tagline {
+  margin-top: 4px;
+}
+
+.login-card {
+  padding: 28px 24px;
+}
+
+.card-title {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.card-sub {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.login-card .field + .field {
+  margin-top: 14px;
+}
+
+.login-card form > .error {
+  margin-top: 14px;
+}
+
+.login-card button.primary {
+  width: 100%;
+  margin-top: 18px;
+}
+
+.footnote {
+  margin: 18px 0 0;
+  font-size: 12px;
+  color: var(--text-faint);
+  text-align: center;
+}
+
+/* App header (post-login) */
+
+.app-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.page-header-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.user-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.user-info {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+button.ghost {
+  margin-top: 0;
+  padding: 7px 14px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+  min-height: auto;
+}
+
+button.ghost:hover:not(:disabled) {
+  background: #f1f5f9;
+  border-color: #94a3b8;
+}
+
+button.ghost:disabled {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+/* Splash (initial auth check) */
+
+.splash {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 60vh;
+}
+
+.splash .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0.4;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.splash .dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.splash .dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
 /* Responsive */
 
 @media (max-width: 640px) {
@@ -395,6 +545,15 @@ button.primary:disabled {
 
   .hint {
     text-align: center;
+  }
+
+  .app-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .user-block {
+    align-self: flex-end;
   }
 }
 

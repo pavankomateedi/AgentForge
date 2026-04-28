@@ -1,4 +1,4 @@
-// Mirrors the FastAPI ChatResponse schema in agent/main.py.
+// Mirrors the FastAPI ChatResponse + auth schemas in agent/.
 
 export type Verification = {
   passed: boolean
@@ -53,3 +53,20 @@ export const EXAMPLES: { label: string; text: string }[] = [
   { label: 'Current medications', text: 'What medications is the patient on?' },
   { label: 'Active conditions', text: 'What active conditions does the patient have?' },
 ]
+
+// ---- Auth ----
+
+export type AuthUser = {
+  id: number
+  username: string
+  email: string
+  role: string
+  totp_enrolled: boolean
+}
+
+export type LoginResponse = {
+  user: AuthUser
+  needs_mfa: boolean
+}
+
+export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated'

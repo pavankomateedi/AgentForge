@@ -1,10 +1,19 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ChatForm } from './components/ChatForm'
 import { ResponsePanel } from './components/ResponsePanel'
-import type { ChatResponse } from './types'
+import { Login } from './components/Login'
+import { Header } from './components/Header'
+import { api } from './api'
+import type { AuthStatus, AuthUser, ChatResponse } from './types'
 import './App.css'
 
 function App() {
+  // ---- Auth state ----
+  const [authStatus, setAuthStatus] = useState<AuthStatus>('loading')
+  const [user, setUser] = useState<AuthUser | null>(null)
+  const [loggingOut, setLoggingOut] = useState(false)
+
+  // ---- Chat state ----
   const [patientId, setPatientId] = useState('demo-001')
   const [message, setMessage] = useState('Brief me on this patient.')
   const [loading, setLoading] = useState(false)
@@ -12,6 +21,44 @@ function App() {
   const [elapsed, setElapsed] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showResult, setShowResult] = useState(false)
+
+  // On mount: check existing session.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const res = await api.me()
+      if (cancelled) return
+      if (res.ok) {
+        setUser(res.data)
+        setAuthStatus('authenticated')
+      } else {
+        setAuthStatus('unauthenticated')
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  function onAuthenticated(u: AuthUser) {
+    setUser(u)
+    setAuthStatus('authenticated')
+    // Reset any prior chat state in case this is a re-auth.
+    setShowResult(false)
+    setResult(null)
+    setError(null)
+  }
+
+  async function onLogout() {
+    setLoggingOut(true)
+    await api.logout()
+    setLoggingOut(false)
+    setUser(null)
+    setAuthStatus('unauthenticated')
+    setShowResult(false)
+    setResult(null)
+    setError(null)
+  }
 
   async function ask() {
     if (!message.trim()) return
@@ -22,37 +69,46 @@ function App() {
     setElapsed(null)
 
     const t0 = performance.now()
-    try {
-      const res = await fetch('/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ patient_id: patientId, message }),
-      })
-      const elapsedSec = (performance.now() - t0) / 1000
-      setElapsed(elapsedSec)
+    const res = await api.chat(patientId, message)
+    setElapsed((performance.now() - t0) / 1000)
+    setLoading(false)
 
-      if (!res.ok) {
-        setError(`The server returned an error (HTTP ${res.status}).`)
+    if (!res.ok) {
+      // Session expired or revoked mid-use — bounce to login.
+      if (res.status === 401) {
+        setUser(null)
+        setAuthStatus('unauthenticated')
         return
       }
-      const data: ChatResponse = await res.json()
-      setResult(data)
-    } catch (err) {
-      setError(
-        'Could not reach the server. ' +
-          (err instanceof Error ? err.message : String(err)),
-      )
-    } finally {
-      setLoading(false)
+      setError(res.message)
+      return
     }
+    setResult(res.data)
+  }
+
+  if (authStatus === 'loading') {
+    return (
+      <div className="app">
+        <div className="splash">
+          <span className="dot" />
+          <span className="dot" />
+          <span className="dot" />
+        </div>
+      </div>
+    )
+  }
+
+  if (authStatus === 'unauthenticated' || !user) {
+    return (
+      <div className="app">
+        <Login onAuthenticated={onAuthenticated} />
+      </div>
+    )
   }
 
   return (
     <div className="app">
-      <header className="page-header">
-        <h1>Clinical Co-Pilot</h1>
-        <p className="tagline">Pre-visit briefings, grounded in the chart.</p>
-      </header>
+      <Header user={user} onLogout={onLogout} loggingOut={loggingOut} />
 
       <main>
         <ChatForm
