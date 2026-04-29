@@ -10,7 +10,8 @@
   --text-primary: #0f172a;
   --text-secondary: #475569;
   --text-muted: #64748b;
-  --text-faint: #94a3b8;
+  /* Bumped from #94a3b8 (≈2.8:1) to clear WCAG AA contrast on the page bg. */
+  --text-faint: #6b7280;
 
   --accent: #2563eb;
   --accent-hover: #1d4ed8;
@@ -135,13 +136,22 @@ input[type='email']:hover {
   border-color: #94a3b8;
 }
 
-select:focus,
-textarea:focus,
-input[type='text']:focus,
-input[type='password']:focus,
-input[type='email']:focus {
-  outline: none;
+select:focus-visible,
+textarea:focus-visible,
+input[type='text']:focus-visible,
+input[type='password']:focus-visible,
+input[type='email']:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
   border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-ring);
+}
+
+/* Buttons: high-visibility focus ring on keyboard nav only. */
+button:focus-visible,
+.example:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
   box-shadow: 0 0 0 4px var(--accent-ring);
 }
 
@@ -436,16 +446,51 @@ button.primary:disabled {
 
 /* MFA setup / challenge */
 
+/* Numbered step indicators driven by a CSS counter so the markup stays
+   semantic <ol>. */
 .instructions {
-  margin: 0 0 20px;
-  padding-left: 20px;
+  list-style: none;
+  margin: 0 0 24px;
+  padding: 0;
+  counter-reset: step;
   font-size: 14px;
   color: var(--text-secondary);
-  line-height: 1.65;
+  line-height: 1.6;
 }
 
 .instructions li {
-  margin-bottom: 6px;
+  position: relative;
+  padding: 4px 0 12px 44px;
+  counter-increment: step;
+}
+
+.instructions li::before {
+  content: counter(step);
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid #dbeafe;
+  font-weight: 700;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.instructions li:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 13.5px;
+  top: 30px;
+  bottom: 4px;
+  width: 1px;
+  background: #dbeafe;
 }
 
 .qr-block {
@@ -516,6 +561,68 @@ button.link:hover {
   color: var(--success-text);
   border-radius: var(--radius);
   font-size: 14px;
+}
+
+/* Notice banner (e.g. "Your session expired"). Less alarming than .error,
+   more prominent than .card-sub. */
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 11px 14px;
+  background: var(--warn-bg);
+  border: 1px solid var(--warn-border);
+  color: var(--warn-text);
+  border-radius: var(--radius);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.notice > span {
+  flex: 1 1 auto;
+}
+
+.notice-dismiss {
+  flex: 0 0 auto;
+  background: transparent;
+  border: 0;
+  color: var(--warn-text);
+  font-size: 18px;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+  opacity: 0.7;
+  min-height: auto;
+}
+
+.notice-dismiss:hover {
+  opacity: 1;
+}
+
+/* Empty-state hint shown beneath the form when no result yet. */
+.empty-hint {
+  margin: 4px 0 0;
+  padding: 14px 16px;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.55;
+  text-align: center;
+  background: var(--bg-card);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+}
+
+/* Error block in ResponsePanel — wraps the message + an optional retry. */
+.error-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.error-block button.ghost {
+  align-self: flex-start;
 }
 
 .hint-warn {
@@ -672,5 +779,27 @@ button.ghost:disabled {
 @media (min-width: 1024px) {
   .app {
     padding: 56px 24px 80px;
+  }
+}
+
+/* Reduced motion — honor the user's OS preference for less animation. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .response-card,
+  .thinking .dot,
+  .splash .dot {
+    animation: none;
+  }
+
+  .thinking .dot,
+  .splash .dot {
+    opacity: 0.7;
   }
 }

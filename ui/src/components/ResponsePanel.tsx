@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import type { ChatResponse } from '../types'
 import { SourceText } from './SourceText'
 
@@ -6,9 +7,37 @@ type Props = {
   result: ChatResponse | null
   elapsed: number | null
   error: string | null
+  onRetry?: () => void
 }
 
-export function ResponsePanel({ loading, result, elapsed, error }: Props) {
+const LOADING_STAGES = [
+  'Looking up the chart…',
+  'Pulling problem list and medications…',
+  'Reviewing recent labs…',
+  'Verifying every fact against a source…',
+  'Writing your briefing…',
+]
+
+export function ResponsePanel({
+  loading,
+  result,
+  elapsed,
+  error,
+  onRetry,
+}: Props) {
+  const [stageIndex, setStageIndex] = useState(0)
+
+  useEffect(() => {
+    if (!loading) {
+      setStageIndex(0)
+      return
+    }
+    const id = setInterval(() => {
+      setStageIndex((i) => Math.min(i + 1, LOADING_STAGES.length - 1))
+    }, 2400)
+    return () => clearInterval(id)
+  }, [loading])
+
   return (
     <section className="card response-card" aria-live="polite">
       <div className="response-header">
@@ -36,7 +65,10 @@ export function ResponsePanel({ loading, result, elapsed, error }: Props) {
                   Verified
                 </span>
               ) : (
-                <span className="badge needs-review" aria-label="Needs review">
+                <span
+                  className="badge needs-review"
+                  aria-label="Needs review"
+                >
                   Needs review
                 </span>
               )}
@@ -50,17 +82,30 @@ export function ResponsePanel({ loading, result, elapsed, error }: Props) {
 
       <div className="response-body">
         {loading && (
-          <div className="thinking">
-            <span className="dot" />
-            <span className="dot" />
-            <span className="dot" />
+          <div className="thinking" role="status" aria-live="polite">
+            <span className="dot" aria-hidden="true" />
+            <span className="dot" aria-hidden="true" />
+            <span className="dot" aria-hidden="true" />
             <span className="thinking-label">
-              Reviewing the chart and writing your briefing…
+              {LOADING_STAGES[stageIndex]}
             </span>
           </div>
         )}
 
-        {!loading && error && <p className="error">{error}</p>}
+        {!loading && error && (
+          <div className="error-block" role="alert">
+            <p className="error">{error}</p>
+            {onRetry && (
+              <button
+                type="button"
+                className="ghost"
+                onClick={onRetry}
+              >
+                Try again
+              </button>
+            )}
+          </div>
+        )}
 
         {!loading && result && (
           <p className="response">

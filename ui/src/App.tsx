@@ -30,6 +30,7 @@ function App() {
   const [user, setUser] = useState<AuthUser | null>(null)
   const [loggingOut, setLoggingOut] = useState(false)
   const [resetToken, setResetToken] = useState<string | null>(null)
+  const [sessionExpired, setSessionExpired] = useState(false)
 
   // ---- Chat state ----
   const [patientId, setPatientId] = useState('demo-001')
@@ -69,6 +70,7 @@ function App() {
   function onAuthenticated(u: AuthUser) {
     setUser(u)
     setAuthStatus('authenticated')
+    setSessionExpired(false)
     // Reset any prior chat state in case this is a re-auth.
     setShowResult(false)
     setResult(null)
@@ -81,6 +83,7 @@ function App() {
     setLoggingOut(false)
     setUser(null)
     setAuthStatus('unauthenticated')
+    setSessionExpired(false)
     setShowResult(false)
     setResult(null)
     setError(null)
@@ -100,9 +103,10 @@ function App() {
     setLoading(false)
 
     if (!res.ok) {
-      // Session expired or revoked mid-use — bounce to login.
+      // Session expired or revoked mid-use — bounce to login with a notice.
       if (res.status === 401) {
         setUser(null)
+        setSessionExpired(true)
         setAuthStatus('unauthenticated')
         return
       }
@@ -115,10 +119,10 @@ function App() {
   if (authStatus === 'loading') {
     return (
       <div className="app">
-        <div className="splash">
-          <span className="dot" />
-          <span className="dot" />
-          <span className="dot" />
+        <div className="splash" role="status" aria-label="Loading">
+          <span className="dot" aria-hidden="true" />
+          <span className="dot" aria-hidden="true" />
+          <span className="dot" aria-hidden="true" />
         </div>
       </div>
     )
@@ -150,6 +154,8 @@ function App() {
           onAuthenticated={onAuthenticated}
           onMfaRequired={onMfaRequired}
           onForgotPassword={onForgotPassword}
+          sessionExpired={sessionExpired}
+          onDismissSessionExpired={() => setSessionExpired(false)}
         />
       </div>
     )
@@ -201,6 +207,8 @@ function App() {
           onAuthenticated={onAuthenticated}
           onMfaRequired={onMfaRequired}
           onForgotPassword={onForgotPassword}
+          sessionExpired={sessionExpired}
+          onDismissSessionExpired={() => setSessionExpired(false)}
         />
       </div>
     )
@@ -220,12 +228,20 @@ function App() {
           onSubmit={ask}
         />
 
+        {!showResult && (
+          <p className="empty-hint">
+            Pick a question above. Every clinical fact in the response is verified
+            against a real source record before it reaches you.
+          </p>
+        )}
+
         {showResult && (
           <ResponsePanel
             loading={loading}
             result={result}
             elapsed={elapsed}
             error={error}
+            onRetry={!loading && error ? ask : undefined}
           />
         )}
       </main>

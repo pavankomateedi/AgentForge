@@ -6,12 +6,16 @@ type Props = {
   onAuthenticated: (user: AuthUser) => void
   onMfaRequired: (action: 'enroll' | 'challenge') => void
   onForgotPassword: () => void
+  sessionExpired?: boolean
+  onDismissSessionExpired?: () => void
 }
 
 export function Login({
   onAuthenticated,
   onMfaRequired,
   onForgotPassword,
+  sessionExpired = false,
+  onDismissSessionExpired,
 }: Props) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -44,6 +48,22 @@ export function Login({
       </header>
 
       <section className="card login-card" aria-label="Sign in">
+        {sessionExpired && (
+          <div className="notice" role="status">
+            <span>Your session expired. Please sign in again to continue.</span>
+            {onDismissSessionExpired && (
+              <button
+                type="button"
+                className="notice-dismiss"
+                aria-label="Dismiss"
+                onClick={onDismissSessionExpired}
+              >
+                ×
+              </button>
+            )}
+          </div>
+        )}
+
         <h2 className="card-title">Sign in</h2>
         <p className="card-sub">
           Access is restricted to authorized clinicians.
