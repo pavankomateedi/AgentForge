@@ -1,6 +1,6 @@
 # Demo video script — Clinical Co-Pilot
 
-**Target length: ~2:30 single take.**
+**Target length: ~3:00 single take.**
 Speak naturally — these are talking-point guidelines, not lines to read verbatim.
 
 ---
@@ -112,12 +112,25 @@ Speak naturally — these are talking-point guidelines, not lines to read verbat
 
 ---
 
-## Beat 7 — Closing · 2:25–2:35
+## Beat 7 — Observability · 2:25–2:55
 
-**On screen:** Either keep the refusal screen visible, or briefly flash the README / ARCHITECTURE doc.
+**Pre-flight:** open a second tab on `https://us.cloud.langfuse.com` already signed in, on the project's **Traces** view. Have it ready to alt-tab to.
+
+**Action:** alt-tab to the Langfuse tab. The most recent trace is the one you just produced.
+
+**Action:** click the most recent `chat_turn` trace.
 
 **Say:**
-> "This is the v0 demo on mock FHIR with standalone authentication. The architecture document specifies the production path: a custom React module inside OpenEMR, using OpenEMR's OAuth2 SMART-on-FHIR for auth and FHIR R4 as the only data path. All the verification, patient locking, and audit guarantees you just saw carry forward unchanged. The full architecture and the eval suite that regression-tests every claim are in the repo."
+> "Every request opens a Langfuse trace. The doc asks for four things from observability: what the agent did, how long each step took, did any tools fail, and how many tokens we burned. All four are right here. The root span is the chat turn. Inside it: a generation for the Plan call with token usage and computed cost, a span for parallel retrieval, a generation for the Reason call, and a span for the verifier. Trace-level scores — verified, regenerated, refused, value-mismatch count — power a verifier-pass-rate dashboard over time. If retrieval had failed, that span would be red with the reason attached. This is the data plane the eval suite writes scores into and the audit log joins on the trace ID."
+
+---
+
+## Beat 8 — Closing · 2:55–3:05
+
+**On screen:** Either alt-tab back to the refusal screen, or briefly flash the README / ARCHITECTURE doc.
+
+**Say:**
+> "This is the v0 demo on mock FHIR with standalone authentication. The architecture document specifies the production path: a custom React module inside OpenEMR, using OpenEMR's OAuth2 SMART-on-FHIR for auth and FHIR R4 as the only data path. All the verification, patient locking, and audit guarantees you just saw carry forward unchanged. The full architecture, eval suite, and Langfuse traces are in the repo."
 
 ---
 
