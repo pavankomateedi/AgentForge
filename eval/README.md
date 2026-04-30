@@ -38,7 +38,9 @@ replay test starts failing because the LLM output legitimately changed
 ## What each layer guarantees
 
 **Unit (`test_verifier.py`, `test_tools.py`)**
-- Source-id matching catches fabricated citations.
+- Source-id matching (verifier pass 1) catches fabricated citations.
+- Numeric value-tolerance (verifier pass 2) catches the "real id, wrong number" case — prose says 8.4 while the cited record is 7.4. Identifier digits like the "1" in "A1c" are not treated as measurements.
+- `build_record_index` returns a `source_id → record` map for the value pass.
 - Patient subject locking rejects any tool call against a different patient_id (structural defense per ARCHITECTURE.md §6.4).
 - Mock FHIR returns the expected shape with `source_id` on every record.
 
@@ -51,7 +53,7 @@ replay test starts failing because the LLM output legitimately changed
 **Replay (`replay/test_replay.py`)**
 - For each recorded scenario, the orchestrator runs against the cassette's recorded LLM responses and the verifier + trace properties match what was captured at record time.
 - Pinned: `verified` flag, presence/absence of unknown ids, cited-id count, retrieved-id count, plan-node tool selection, refused flag, response non-emptiness.
-- Catches: verifier bugs, orchestrator wiring drift, audit emission regressions, citation-extraction drift — all on real-shaped LLM outputs.
+- Catches: verifier bugs (both passes), orchestrator wiring drift (including regenerate-once retry), audit emission regressions, citation-extraction drift — all on real-shaped LLM outputs.
 - Doesn't catch: actual LLM behavior changes (those are the live layer's job).
 
 **Live (`live/test_agent_*`)**

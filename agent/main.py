@@ -121,14 +121,6 @@ async def chat(
     if _client is None or _config is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
-    audit.record(
-        _config.database_url,
-        audit.AuditEvent.CHAT_REQUEST,
-        user_id=current_user.id,
-        ip_address=_client_ip(request),
-        details={"patient_id": req.patient_id, "message_len": len(req.message)},
-    )
-
     result = await run_turn(
         client=_client,
         model=_config.model,
@@ -136,7 +128,29 @@ async def chat(
         user_message=req.message,
     )
 
+    # Audit AFTER the turn so the trace_id can be joined to the request.
+    # The /chat call has already been authenticated; an audit record on a
+    # request whose orchestrator never finished isn't more useful than
+    # one keyed on trace_id with the verification outcome attached.
+    audit.record(
+        _config.database_url,
+        audit.AuditEvent.CHAT_REQUEST,
+        user_id=current_user.id,
+        ip_address=_client_ip(request),
+        details={
+            "patient_id": req.patient_id,
+            "message_len": len(req.message),
+            "trace_id": result.trace.trace_id,
+            "verified": result.verified,
+            "regenerated": result.trace.regenerated,
+            "refused": result.trace.refused,
+            "timings_ms": result.trace.timings_ms,
+        },
+    )
+
+    verification = result.trace.verification
     trace = {
+        "trace_id": result.trace.trace_id,
         "plan_tool_calls": [
             {"name": tc["name"], "input": tc["input"]}
             for tc in result.trace.plan_tool_calls
@@ -144,16 +158,26 @@ async def chat(
         "retrieved_source_ids": result.trace.retrieved_source_ids,
         "verification": (
             {
-                "passed": result.trace.verification.passed,
-                "note": result.trace.verification.note,
-                "cited_ids": result.trace.verification.cited_ids,
-                "unknown_ids": result.trace.verification.unknown_ids,
+                "passed": verification.passed,
+                "note": verification.note,
+                "cited_ids": verification.cited_ids,
+                "unknown_ids": verification.unknown_ids,
+                "value_mismatches": [
+                    {
+                        "source_id": mm.source_id,
+                        "cited_value": mm.cited_value,
+                        "record_value": mm.record_value,
+                    }
+                    for mm in verification.value_mismatches
+                ],
             }
-            if result.trace.verification
+            if verification
             else None
         ),
+        "regenerated": result.trace.regenerated,
         "refused": result.trace.refused,
         "refusal_reason": result.trace.refusal_reason,
+        "timings_ms": result.trace.timings_ms,
         "usage": {
             "plan": result.trace.plan_usage,
             "reason": result.trace.reason_usage,

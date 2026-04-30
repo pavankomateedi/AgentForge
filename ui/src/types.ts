@@ -1,10 +1,17 @@
 // Mirrors the FastAPI ChatResponse + auth schemas in agent/.
 
+export type ValueMismatch = {
+  source_id: string
+  cited_value: number
+  record_value: number
+}
+
 export type Verification = {
   passed: boolean
   note: string
   cited_ids: string[]
   unknown_ids: string[]
+  value_mismatches: ValueMismatch[]
 }
 
 export type ToolCall = {
@@ -20,11 +27,14 @@ export type Usage = {
 }
 
 export type Trace = {
+  trace_id: string
   plan_tool_calls: ToolCall[]
   retrieved_source_ids: string[]
   verification: Verification | null
+  regenerated: boolean
   refused: boolean
   refusal_reason: string
+  timings_ms: Record<string, number>
   usage: {
     plan: Usage
     reason: Usage
