@@ -28,6 +28,7 @@ export type Usage = {
 
 export type Trace = {
   trace_id: string
+  trace_url: string | null
   plan_tool_calls: ToolCall[]
   retrieved_source_ids: string[]
   verification: Verification | null

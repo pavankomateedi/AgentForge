@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
-from agent import audit, auth
+from agent import audit, auth, observability
 from agent.auth import ABSOLUTE_TIMEOUT_SECONDS, User, get_current_user
 from agent.config import Config, get_config
 from agent.db import connect, init_db
@@ -63,7 +63,15 @@ async def lifespan(app: FastAPI):
     init_db(_config.database_url)
     _bootstrap_default_user_if_empty(_config)
     _client = anthropic.AsyncAnthropic(api_key=_config.anthropic_api_key)
-    yield
+    observability.init(
+        public_key=_config.langfuse_public_key,
+        secret_key=_config.langfuse_secret_key,
+        host=_config.langfuse_host,
+    )
+    try:
+        yield
+    finally:
+        observability.shutdown()
 
 
 app = FastAPI(title="Clinical Co-Pilot Agent", version="0.2.0", lifespan=lifespan)
@@ -126,6 +134,8 @@ async def chat(
         model=_config.model,
         patient_id=req.patient_id,
         user_message=req.message,
+        user_id=str(current_user.id),
+        user_role=current_user.role,
     )
 
     # Audit AFTER the turn so the trace_id can be joined to the request.
@@ -151,6 +161,7 @@ async def chat(
     verification = result.trace.verification
     trace = {
         "trace_id": result.trace.trace_id,
+        "trace_url": observability.trace_url(result.trace.trace_id),
         "plan_tool_calls": [
             {"name": tc["name"], "input": tc["input"]}
             for tc in result.trace.plan_tool_calls

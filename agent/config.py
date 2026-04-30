@@ -35,6 +35,11 @@ class Config:
     resend_from: str | None
     app_base_url: str
 
+    # Observability (Langfuse)
+    langfuse_public_key: str | None
+    langfuse_secret_key: str | None
+    langfuse_host: str
+
 
 def _bool(value: str | None, default: bool = False) -> bool:
     if value is None:
@@ -69,4 +74,7 @@ def get_config() -> Config:
         resend_api_key=(os.environ.get("RESEND_API_KEY") or "").strip() or None,
         resend_from=(os.environ.get("RESEND_FROM") or "").strip() or None,
         app_base_url=os.environ.get("APP_BASE_URL", "http://127.0.0.1:8000").strip(),
+        langfuse_public_key=(os.environ.get("LANGFUSE_PUBLIC_KEY") or "").strip() or None,
+        langfuse_secret_key=(os.environ.get("LANGFUSE_SECRET_KEY") or "").strip() or None,
+        langfuse_host=os.environ.get("LANGFUSE_HOST", "https://us.cloud.langfuse.com").strip(),
     )

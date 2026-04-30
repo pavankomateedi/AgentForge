@@ -27,6 +27,7 @@ from typing import Any
 
 import anthropic
 
+from agent import observability as obs
 from agent.prompts import PLAN_SYSTEM_PROMPT, REASON_SYSTEM_PROMPT
 from agent.tools import TOOLS, execute_tools_parallel
 from agent.verifier import (
@@ -70,6 +71,8 @@ async def run_turn(
     model: str,
     patient_id: str,
     user_message: str,
+    user_id: str | None = None,
+    user_role: str | None = None,
 ) -> TurnResult:
     trace = TurnTrace(trace_id=uuid.uuid4().hex[:12])
     log.info(
@@ -79,6 +82,44 @@ async def run_turn(
         len(user_message),
     )
 
+    # Wrap the entire turn in a Langfuse trace. The context manager is a
+    # no-op when Langfuse isn't configured (tests, local dev without the
+    # env vars) so we don't fork the code path.
+    with obs.turn(
+        trace_id=trace.trace_id,
+        user_id=user_id,
+        user_role=user_role,
+        patient_id_hash=_hash_patient_id(patient_id),
+        user_message=user_message,
+    ):
+        result = await _run_turn_inner(
+            client=client,
+            model=model,
+            patient_id=patient_id,
+            user_message=user_message,
+            trace=trace,
+        )
+
+        # Trace-level scores power the verifier-pass-rate dashboard view.
+        v = trace.verification
+        obs.score("verified", trace.verification.passed if v else False)
+        obs.score("regenerated", trace.regenerated)
+        obs.score("refused", trace.refused)
+        if v is not None:
+            obs.score("cited_ids_count", len(v.cited_ids))
+            obs.score("value_mismatches", len(v.value_mismatches))
+
+        return result
+
+
+async def _run_turn_inner(
+    *,
+    client: anthropic.AsyncAnthropic,
+    model: str,
+    patient_id: str,
+    user_message: str,
+    trace: TurnTrace,
+) -> TurnResult:
     plan_user_content = (
         f"Patient ID for this conversation (locked): {patient_id}\n\n"
         f"User question: {user_message}"
@@ -108,6 +149,16 @@ async def run_turn(
     trace.plan_usage = _usage_dict(plan_response.usage)
 
     tool_use_blocks = [b for b in plan_response.content if b.type == "tool_use"]
+    obs.log_generation(
+        name="plan",
+        model=model,
+        input_messages=[{"role": "user", "content": plan_user_content}],
+        output=str([b.name for b in tool_use_blocks]),
+        usage=trace.plan_usage,
+        duration_ms=trace.timings_ms["plan"],
+        metadata={"tool_calls": [b.name for b in tool_use_blocks]},
+    )
+
     if not tool_use_blocks:
         trace.refused = True
         trace.refusal_reason = "Plan node did not request any tools."
@@ -160,6 +211,23 @@ async def run_turn(
         len(retrieved_source_ids),
     )
 
+    tool_errors = [r for r in tool_results if r.get("is_error")]
+    obs.log_span(
+        name="retrieve",
+        duration_ms=trace.timings_ms["retrieve"],
+        metadata={
+            "tools": [tc["name"] for tc in trace.plan_tool_calls],
+            "source_id_count": len(retrieved_source_ids),
+            "error_count": len(tool_errors),
+        },
+        output={"source_ids": trace.retrieved_source_ids},
+        error=(
+            f"{len(tool_errors)}/{len(tool_results)} tool calls errored"
+            if tool_errors
+            else None
+        ),
+    )
+
     if all(r.get("is_error") for r in tool_results):
         trace.refused = True
         trace.refusal_reason = "Every retrieval tool returned an error."
@@ -188,6 +256,14 @@ async def run_turn(
     trace.timings_ms["reason"] = _elapsed_ms(t0)
     trace.reason_text = reason_text
     trace.reason_usage = reason_usage
+    obs.log_generation(
+        name="reason",
+        model=model,
+        input_messages="<plan + tool results>",
+        output=reason_text,
+        usage=reason_usage,
+        duration_ms=trace.timings_ms["reason"],
+    )
 
     # ---- Verify node ----
     t0 = time.perf_counter()
@@ -202,6 +278,25 @@ async def run_turn(
         trace.timings_ms["verify"],
         "PASS" if verification.passed else "FAIL",
         verification.note,
+    )
+    obs.log_span(
+        name="verify",
+        duration_ms=trace.timings_ms["verify"],
+        metadata={
+            "passed": verification.passed,
+            "cited_ids": verification.cited_ids,
+            "unknown_ids": verification.unknown_ids,
+            "value_mismatches": [
+                {
+                    "source_id": mm.source_id,
+                    "cited_value": mm.cited_value,
+                    "record_value": mm.record_value,
+                }
+                for mm in verification.value_mismatches
+            ],
+        },
+        output={"note": verification.note},
+        error=None if verification.passed else verification.note,
     )
 
     if verification.passed:
@@ -233,6 +328,15 @@ async def run_turn(
     # Sum usage so cost accounting reflects both calls.
     for k, v in retry_usage.items():
         trace.reason_usage[k] = trace.reason_usage.get(k, 0) + v
+    obs.log_generation(
+        name="reason_retry",
+        model=model,
+        input_messages="<retry feedback>",
+        output=retry_text,
+        usage=retry_usage,
+        duration_ms=trace.timings_ms["reason_retry"],
+        metadata={"retry_reason": verification.note},
+    )
 
     t0 = time.perf_counter()
     retry_verification = verify_response(
@@ -246,6 +350,12 @@ async def run_turn(
         "PASS" if retry_verification.passed else "FAIL",
         retry_verification.note,
     )
+    obs.log_span(
+        name="verify_retry",
+        duration_ms=trace.timings_ms["verify_retry"],
+        metadata={"passed": retry_verification.passed},
+        error=None if retry_verification.passed else retry_verification.note,
+    )
 
     if retry_verification.passed:
         return TurnResult(response=retry_text, verified=True, trace=trace)
@@ -257,6 +367,16 @@ async def run_turn(
         verified=False,
         trace=trace,
     )
+
+
+def _hash_patient_id(patient_id: str) -> str:
+    """Stable, non-reversible-ish identifier for the trace metadata. We
+    don't need cryptographic strength — just don't put a raw demo id in
+    Langfuse if it happened to ever be a real one. The audit log gets
+    the real id."""
+    import hashlib
+
+    return hashlib.sha1(patient_id.encode("utf-8")).hexdigest()[:12]
 
 
 async def _reason_call(

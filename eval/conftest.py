@@ -159,13 +159,15 @@ def stub_run_turn(monkeypatch) -> dict[str, Any]:
     }
 
     async def fake_run_turn(
-        *, client, model, patient_id, user_message
+        *, client, model, patient_id, user_message, user_id=None, user_role=None
     ) -> TurnResult:
         state["calls"].append(
             {
                 "patient_id": patient_id,
                 "user_message": user_message,
                 "model": model,
+                "user_id": user_id,
+                "user_role": user_role,
             }
         )
         trace = TurnTrace()

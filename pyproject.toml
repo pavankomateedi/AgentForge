@@ -12,6 +12,7 @@ dependencies = [
     "bcrypt>=4.2.0",
     "itsdangerous>=2.2.0",
     "pyotp>=2.9.0",
+    "langfuse>=4.0.0",
 ]
 
 [project.optional-dependencies]
