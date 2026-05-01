@@ -29,6 +29,7 @@ import anthropic
 
 from agent import observability as obs
 from agent.prompts import PLAN_SYSTEM_PROMPT, REASON_SYSTEM_PROMPT
+from agent.rules import RuleFinding, evaluate_clinical_rules
 from agent.tools import TOOLS, execute_tools_parallel
 from agent.verifier import (
     VerificationResult,
@@ -48,6 +49,9 @@ class TurnTrace:
     retrieved_source_ids: list[str] = field(default_factory=list)
     reason_text: str = ""
     verification: VerificationResult | None = None
+    # Domain-rule findings from agent.rules — independent of the LLM,
+    # always deterministic, surfaced to the reason node and the trace.
+    rule_findings: list[RuleFinding] = field(default_factory=list)
     regenerated: bool = False  # True if the reason node ran twice
     refused: bool = False
     refusal_reason: str = ""
@@ -108,6 +112,12 @@ async def run_turn(
         if v is not None:
             obs.score("cited_ids_count", len(v.cited_ids))
             obs.score("value_mismatches", len(v.value_mismatches))
+        obs.score("rule_findings_count", len(trace.rule_findings))
+        critical_count = sum(
+            1 for f in trace.rule_findings if f.severity == "critical"
+        )
+        if critical_count:
+            obs.score("rule_critical_count", critical_count)
 
         return result
 
@@ -244,12 +254,63 @@ async def _run_turn_inner(
             trace=trace,
         )
 
+    # ---- Rules node ----
+    # Domain-rule evaluation runs BEFORE Reason so the LLM sees the
+    # findings as input context and can acknowledge them. The engine is
+    # pure Python (agent.rules), independent of the LLM, and emits
+    # findings deterministically. This is the "domain constraint
+    # enforcement" half of verification per the case-study doc; the
+    # source-id + value-tolerance verifier is the other half.
+    t0 = time.perf_counter()
+    rule_findings = evaluate_clinical_rules(parsed_results)
+    trace.timings_ms["rules"] = _elapsed_ms(t0)
+    trace.rule_findings = rule_findings
+    log.info(
+        "turn[%s] rules: %dms, %d finding(s) — %s",
+        trace.trace_id,
+        trace.timings_ms["rules"],
+        len(rule_findings),
+        [f.rule_id for f in rule_findings],
+    )
+    obs.log_span(
+        name="rules",
+        duration_ms=trace.timings_ms["rules"],
+        metadata={
+            "finding_count": len(rule_findings),
+            "rule_ids": [f.rule_id for f in rule_findings],
+            "severities": [f.severity for f in rule_findings],
+        },
+        output={
+            "findings": [
+                {
+                    "rule_id": f.rule_id,
+                    "category": f.category,
+                    "severity": f.severity,
+                    "message": f.message,
+                    "evidence_source_ids": list(f.evidence_source_ids),
+                }
+                for f in rule_findings
+            ]
+        },
+    )
+
     # ---- Reason node (first pass) ----
     base_messages: list[dict[str, Any]] = [
         {"role": "user", "content": plan_user_content},
         {"role": "assistant", "content": plan_response.content},
         {"role": "user", "content": tool_results},
     ]
+    if rule_findings:
+        # Inject rule findings as a final user-turn note so the LLM has
+        # them in context. The system prompt instructs it to surface
+        # critical findings in the briefing and cite the evidence
+        # source ids.
+        base_messages.append(
+            {
+                "role": "user",
+                "content": _format_rule_findings_for_llm(rule_findings),
+            }
+        )
 
     t0 = time.perf_counter()
     reason_text, reason_usage = await _reason_call(client, model, base_messages)
@@ -430,6 +491,28 @@ def _retry_feedback(v: VerificationResult) -> str:
                 f"record has {mm.record_value}. Use the record value."
             )
     return "\n".join(parts)
+
+
+def _format_rule_findings_for_llm(findings: list[RuleFinding]) -> str:
+    """Render the rule engine's findings as a user-turn note for the
+    Reason LLM. Severity is bolded with caps so the model treats
+    critical findings differently from informational ones; evidence
+    source ids are listed so the model cites the right records."""
+    lines = [
+        "Clinical rules engine — deterministic findings on the retrieved "
+        "records. Surface every CRITICAL finding in your briefing using "
+        "its exact wording, and cite the listed evidence source id(s) "
+        "with <source id=\"...\"/> tags. WARNING findings should be "
+        "mentioned when clinically relevant; informational findings are "
+        "for your context only."
+    ]
+    for f in findings:
+        evidence = ", ".join(f.evidence_source_ids) or "(no source ids)"
+        lines.append(
+            f"- [{f.severity.upper()}] {f.rule_id}: {f.message} "
+            f"(evidence: {evidence})"
+        )
+    return "\n".join(lines)
 
 
 def _elapsed_ms(t0: float) -> int:

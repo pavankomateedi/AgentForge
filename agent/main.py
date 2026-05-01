@@ -185,6 +185,16 @@ async def chat(
             if verification
             else None
         ),
+        "rule_findings": [
+            {
+                "rule_id": f.rule_id,
+                "category": f.category,
+                "severity": f.severity,
+                "message": f.message,
+                "evidence_source_ids": list(f.evidence_source_ids),
+            }
+            for f in result.trace.rule_findings
+        ],
         "regenerated": result.trace.regenerated,
         "refused": result.trace.refused,
         "refusal_reason": result.trace.refusal_reason,
