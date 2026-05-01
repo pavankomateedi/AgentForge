@@ -28,6 +28,9 @@ class AuditEvent:
     MFA_VERIFIED = "mfa_verified"
     MFA_FAILED = "mfa_failed"
     CHAT_REQUEST = "chat_request"
+    CHAT_REFUSED_UNASSIGNED = "chat_refused_unassigned"
+    PATIENT_ASSIGNED = "patient_assigned"
+    PATIENT_UNASSIGNED = "patient_unassigned"
 
 
 def record(

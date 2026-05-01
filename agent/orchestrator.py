@@ -77,6 +77,7 @@ async def run_turn(
     user_message: str,
     user_id: str | None = None,
     user_role: str | None = None,
+    available_tools: list[dict[str, Any]] | None = None,
 ) -> TurnResult:
     trace = TurnTrace(trace_id=uuid.uuid4().hex[:12])
     log.info(
@@ -102,6 +103,7 @@ async def run_turn(
             patient_id=patient_id,
             user_message=user_message,
             trace=trace,
+            available_tools=available_tools,
         )
 
         # Trace-level scores power the verifier-pass-rate dashboard view.
@@ -129,7 +131,12 @@ async def _run_turn_inner(
     patient_id: str,
     user_message: str,
     trace: TurnTrace,
+    available_tools: list[dict[str, Any]] | None = None,
 ) -> TurnResult:
+    # When the caller doesn't pass a role-filtered tool list, fall back
+    # to the full set — keeps backward compat for tests + CLI callers.
+    plan_tools = available_tools if available_tools is not None else TOOLS
+
     plan_user_content = (
         f"Patient ID for this conversation (locked): {patient_id}\n\n"
         f"User question: {user_message}"
@@ -151,7 +158,7 @@ async def _run_turn_inner(
                 "cache_control": {"type": "ephemeral"},
             }
         ],
-        tools=TOOLS,
+        tools=plan_tools,
         tool_choice={"type": "any"},
         messages=[{"role": "user", "content": plan_user_content}],
     )

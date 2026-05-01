@@ -60,6 +60,16 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS idx_reset_tokens_token_hash ON password_reset_tokens(token_hash);
+
+CREATE TABLE IF NOT EXISTS patient_assignments (
+    user_id INTEGER NOT NULL,
+    patient_id TEXT NOT NULL,
+    assigned_at TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (user_id, patient_id),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_assignments_user_id ON patient_assignments(user_id);
 """
 
 

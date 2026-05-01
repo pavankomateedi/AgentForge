@@ -12,11 +12,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
-from agent import audit, auth, observability
+from agent import audit, auth, observability, rbac
 from agent.auth import ABSOLUTE_TIMEOUT_SECONDS, User, get_current_user
 from agent.config import Config, get_config
 from agent.db import connect, init_db
 from agent.orchestrator import run_turn
+from agent.tools import TOOLS
 
 
 log = logging.getLogger(__name__)
@@ -28,7 +29,11 @@ _config: Config | None = None
 def _bootstrap_default_user_if_empty(config: Config) -> None:
     """Seed a single user from env vars when (a) the DB is empty and
     (b) all three DEFAULT_USER_* vars are set. Lets Railway redeploys
-    self-recover from filesystem ephemerality without a manual CLI step."""
+    self-recover from filesystem ephemerality without a manual CLI step.
+
+    Also seeds patient assignments for the bootstrap user so the demo
+    flow works without a separate CLI step. RBAC on /chat refuses any
+    user without an assignment for the requested patient."""
     if not (
         config.default_user_username
         and config.default_user_email
@@ -43,13 +48,51 @@ def _bootstrap_default_user_if_empty(config: Config) -> None:
         "bootstrap: creating default user %r from env vars",
         config.default_user_username,
     )
-    auth.create_user(
+    user = auth.create_user(
         config.database_url,
         username=config.default_user_username,
         email=config.default_user_email,
         password=config.default_user_password,
         role="physician",
     )
+    # Seed assignments for the demo patients; idempotent.
+    for demo_patient_id in ("demo-001", "demo-002"):
+        rbac.assign_patient(
+            config.database_url,
+            user_id=user.id,
+            patient_id=demo_patient_id,
+        )
+    log.info(
+        "bootstrap: assigned %r to patients demo-001, demo-002",
+        config.default_user_username,
+    )
+
+
+def _backfill_assignments_for_legacy_users(config: Config) -> None:
+    """Any existing user with zero patient assignments gets default
+    assignments to both demo patients. Keeps pre-RBAC users working
+    after the schema change without manual intervention. Only
+    physicians get auto-backfilled — nurses and residents are required
+    to have assignments granted explicitly."""
+    with connect(config.database_url) as conn:
+        unassigned = conn.execute(
+            "SELECT u.id, u.username FROM users u "
+            "WHERE u.role = 'physician' AND NOT EXISTS ("
+            "  SELECT 1 FROM patient_assignments a WHERE a.user_id = u.id"
+            ")"
+        ).fetchall()
+    for row in unassigned:
+        for demo_patient_id in ("demo-001", "demo-002"):
+            rbac.assign_patient(
+                config.database_url,
+                user_id=row["id"],
+                patient_id=demo_patient_id,
+            )
+        log.info(
+            "rbac backfill: assigned %r (id=%d) to demo-001, demo-002",
+            row["username"],
+            row["id"],
+        )
 
 
 @asynccontextmanager
@@ -62,6 +105,7 @@ async def lifespan(app: FastAPI):
     )
     init_db(_config.database_url)
     _bootstrap_default_user_if_empty(_config)
+    _backfill_assignments_for_legacy_users(_config)
     _client = anthropic.AsyncAnthropic(api_key=_config.anthropic_api_key)
     observability.init(
         public_key=_config.langfuse_public_key,
@@ -129,6 +173,37 @@ async def chat(
     if _client is None or _config is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
+    # ---- RBAC: assignment gate ----
+    # Refuse before invoking the agent if the user isn't assigned to
+    # this patient. This is the v0 stand-in for OpenEMR's acl_check()
+    # and it's enforced upstream of the orchestrator so an unauthorized
+    # request never reaches the LLM or the FHIR layer.
+    if not rbac.is_assigned(
+        _config.database_url,
+        user_id=current_user.id,
+        patient_id=req.patient_id,
+    ):
+        audit.record(
+            _config.database_url,
+            audit.AuditEvent.CHAT_REFUSED_UNASSIGNED,
+            user_id=current_user.id,
+            ip_address=_client_ip(request),
+            details={
+                "patient_id": req.patient_id,
+                "user_role": current_user.role,
+            },
+        )
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"You are not assigned to patient {req.patient_id!r}. "
+                f"Ask an administrator to grant access."
+            ),
+        )
+
+    # ---- Role-aware tool filtering ----
+    available_tools = rbac.filter_tools_for_role(current_user.role, TOOLS)
+
     result = await run_turn(
         client=_client,
         model=_config.model,
@@ -136,7 +211,19 @@ async def chat(
         user_message=req.message,
         user_id=str(current_user.id),
         user_role=current_user.role,
+        available_tools=available_tools,
     )
+
+    # ---- Resident watermark ----
+    # Residents see physician-equivalent tools but every response is
+    # marked so downstream consumers know the briefing is from a
+    # trainee. Watermark is appended so it survives even if the LLM
+    # ignores formatting hints.
+    if rbac.is_resident(current_user.role) and result.response.strip():
+        result.response = (
+            f"{result.response}\n\n"
+            f"— Supervised review recommended (resident response)."
+        )
 
     # Audit AFTER the turn so the trace_id can be joined to the request.
     # The /chat call has already been authenticated; an audit record on a
