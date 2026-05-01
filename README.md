@@ -16,8 +16,8 @@
 > specify OpenEMR OAuth2 as the production target; the in-app auth is a
 > labeled v0 stand-in.
 
-**Deployed:** _(your Railway public URL)_
-**Demo video:** _(link)_
+**Deployed:** https://web-production-6259a.up.railway.app
+**Demo video:** https://www.loom.com/share/926a88546fec44f4862ff3109d638f5c
 **Documents:** [AUDIT.md](./AUDIT.md) · [USERS.md](./USERS.md) · [ARCHITECTURE.md](./ARCHITECTURE.md)
 
 ---
