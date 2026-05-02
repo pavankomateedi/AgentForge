@@ -55,25 +55,31 @@ def _bootstrap_default_user_if_empty(config: Config) -> None:
         password=config.default_user_password,
         role="physician",
     )
-    # Seed assignments for the demo patients; idempotent.
-    for demo_patient_id in ("demo-001", "demo-002"):
+    # Seed assignments for every shipped demo patient; idempotent.
+    from agent.demo_data import DEMO_PATIENTS
+
+    for demo_patient_id in DEMO_PATIENTS.keys():
         rbac.assign_patient(
             config.database_url,
             user_id=user.id,
             patient_id=demo_patient_id,
         )
     log.info(
-        "bootstrap: assigned %r to patients demo-001, demo-002",
+        "bootstrap: assigned %r to %d demo patient(s): %s",
         config.default_user_username,
+        len(DEMO_PATIENTS),
+        list(DEMO_PATIENTS.keys()),
     )
 
 
 def _backfill_assignments_for_legacy_users(config: Config) -> None:
-    """Any existing user with zero patient assignments gets default
-    assignments to both demo patients. Keeps pre-RBAC users working
-    after the schema change without manual intervention. Only
-    physicians get auto-backfilled — nurses and residents are required
-    to have assignments granted explicitly."""
+    """Any existing physician with zero patient assignments gets default
+    assignments to every shipped demo patient. Keeps pre-RBAC users
+    working after the schema change without manual intervention.
+    Nurses and residents are required to have assignments granted
+    explicitly — no auto-backfill for those roles."""
+    from agent.demo_data import DEMO_PATIENTS
+
     with connect(config.database_url) as conn:
         unassigned = conn.execute(
             "SELECT u.id, u.username FROM users u "
@@ -82,16 +88,17 @@ def _backfill_assignments_for_legacy_users(config: Config) -> None:
             ")"
         ).fetchall()
     for row in unassigned:
-        for demo_patient_id in ("demo-001", "demo-002"):
+        for demo_patient_id in DEMO_PATIENTS.keys():
             rbac.assign_patient(
                 config.database_url,
                 user_id=row["id"],
                 patient_id=demo_patient_id,
             )
         log.info(
-            "rbac backfill: assigned %r (id=%d) to demo-001, demo-002",
+            "rbac backfill: assigned %r (id=%d) to %d demo patient(s)",
             row["username"],
             row["id"],
+            len(DEMO_PATIENTS),
         )
 
 

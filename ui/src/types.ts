@@ -54,8 +54,11 @@ export type Patient = {
 }
 
 export const PATIENTS: Patient[] = [
-  { id: 'demo-001', label: 'Margaret Hayes' },
-  { id: 'demo-002', label: 'James Whitaker' },
+  { id: 'demo-001', label: 'Margaret Hayes — T2DM/HTN/HLD (warning)' },
+  { id: 'demo-002', label: 'James Whitaker — CHF (sparse data)' },
+  { id: 'demo-003', label: 'Robert Mitchell — Critical findings' },
+  { id: 'demo-004', label: 'Linda Chen — Drug interaction' },
+  { id: 'demo-005', label: 'Sarah Martinez — Stable / well-controlled' },
 ]
 
 export const EXAMPLES: { label: string; text: string }[] = [

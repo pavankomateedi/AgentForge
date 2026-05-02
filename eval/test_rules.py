@@ -310,6 +310,42 @@ def test_demo_002_fires_no_rules() -> None:
     assert findings == []
 
 
+def test_demo_003_fires_four_critical_rules() -> None:
+    """Robert Mitchell: uncontrolled diabetic with renal impairment on
+    metformin. Designed to fire the maximal set of clinically-relevant
+    rules without contrived numbers."""
+    findings = evaluate_clinical_rules(_demo_records("demo-003"))
+    rule_ids = sorted(f.rule_id for f in findings)
+    assert rule_ids == sorted([
+        "A1C_UNCONTROLLED",
+        "CREATININE_ELEVATED",
+        "LDL_ABOVE_TARGET",
+        "METFORMIN_RENAL_CONTRAINDICATION",
+    ])
+    # Three of the four are critical; the LDL one is the lone warning.
+    severities = {f.rule_id: f.severity for f in findings}
+    assert severities["A1C_UNCONTROLLED"] == "critical"
+    assert severities["CREATININE_ELEVATED"] == "critical"
+    assert severities["METFORMIN_RENAL_CONTRAINDICATION"] == "critical"
+    assert severities["LDL_ABOVE_TARGET"] == "warning"
+
+
+def test_demo_004_fires_lisinopril_nsaid_interaction() -> None:
+    """Linda Chen: hypertension + chronic back pain on lisinopril +
+    ibuprofen. Drug-interaction rule should fire; no lab rules."""
+    findings = evaluate_clinical_rules(_demo_records("demo-004"))
+    rule_ids = [f.rule_id for f in findings]
+    assert rule_ids == ["LISINOPRIL_NSAID"]
+    assert findings[0].severity == "warning"
+
+
+def test_demo_005_fires_no_rules() -> None:
+    """Sarah Martinez: well-controlled HTN on low-dose lisinopril, all
+    labs normal. The 'nothing to see here' baseline."""
+    findings = evaluate_clinical_rules(_demo_records("demo-005"))
+    assert findings == []
+
+
 def test_evaluate_is_deterministic() -> None:
     """Same input → identical output every time. Critical for replay
     tests + Langfuse trace stability."""
