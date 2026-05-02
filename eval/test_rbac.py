@@ -22,7 +22,6 @@ from __future__ import annotations
 from typing import Any
 
 import pyotp
-import pytest
 from starlette.testclient import TestClient
 
 from agent import auth, rbac

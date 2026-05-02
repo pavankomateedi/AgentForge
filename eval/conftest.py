@@ -61,6 +61,7 @@ def _wipe_db_each_test() -> Iterator[None]:
     with db.connect(database_url) as conn:
         # Order matters: child tables before users (FK target).
         for table in (
+            "daily_token_usage",
             "patient_assignments",
             "password_reset_tokens",
             "audit_log",
@@ -70,7 +71,7 @@ def _wipe_db_each_test() -> Iterator[None]:
         conn.execute(
             "DELETE FROM sqlite_sequence WHERE name IN "
             "('users','audit_log','password_reset_tokens',"
-            "'patient_assignments')"
+            "'patient_assignments','daily_token_usage')"
         )
         conn.commit()
     yield

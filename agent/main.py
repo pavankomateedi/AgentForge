@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
-from agent import audit, auth, observability, rbac
+from agent import audit, auth, budget, observability, rbac
 from agent.auth import ABSOLUTE_TIMEOUT_SECONDS, User, get_current_user
 from agent.config import Config, get_config
 from agent.db import connect, init_db
@@ -173,6 +173,39 @@ async def chat(
     if _client is None or _config is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
 
+    # ---- Cost guard: per-user daily token budget ----
+    # Hard cap on tokens per user per UTC day. Refuses with 429
+    # before invoking the agent so a runaway client cannot keep
+    # accruing cost; current usage and the cap are surfaced in the
+    # response detail so the user knows what happened.
+    if budget.is_over_budget(
+        _config.database_url,
+        user_id=current_user.id,
+        budget=_config.daily_token_budget,
+    ):
+        used = budget.get_today_usage(
+            _config.database_url, user_id=current_user.id
+        )
+        audit.record(
+            _config.database_url,
+            audit.AuditEvent.BUDGET_EXCEEDED,
+            user_id=current_user.id,
+            ip_address=_client_ip(request),
+            details={
+                "tokens_used_today": used,
+                "daily_budget": _config.daily_token_budget,
+                "patient_id": req.patient_id,
+            },
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Daily token budget exceeded "
+                f"({used}/{_config.daily_token_budget}). "
+                f"Resets at UTC midnight."
+            ),
+        )
+
     # ---- RBAC: assignment gate ----
     # Refuse before invoking the agent if the user isn't assigned to
     # this patient. This is the v0 stand-in for OpenEMR's acl_check()
@@ -225,6 +258,19 @@ async def chat(
             f"— Supervised review recommended (resident response)."
         )
 
+    # Record token usage for the cost guard. We accrue usage even on
+    # refusals/regenerations because they cost real tokens; the user
+    # sees the cap creep up correspondingly.
+    turn_tokens = budget.total_tokens_in_turn(
+        result.trace.plan_usage, result.trace.reason_usage
+    )
+    if turn_tokens > 0 and _config.daily_token_budget > 0:
+        budget.record_usage(
+            _config.database_url,
+            user_id=current_user.id,
+            tokens=turn_tokens,
+        )
+
     # Audit AFTER the turn so the trace_id can be joined to the request.
     # The /chat call has already been authenticated; an audit record on a
     # request whose orchestrator never finished isn't more useful than
@@ -242,6 +288,7 @@ async def chat(
             "regenerated": result.trace.regenerated,
             "refused": result.trace.refused,
             "timings_ms": result.trace.timings_ms,
+            "tokens_used_this_turn": turn_tokens,
         },
     )
 

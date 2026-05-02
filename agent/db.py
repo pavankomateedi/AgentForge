@@ -70,6 +70,16 @@ CREATE TABLE IF NOT EXISTS patient_assignments (
 );
 
 CREATE INDEX IF NOT EXISTS idx_assignments_user_id ON patient_assignments(user_id);
+
+CREATE TABLE IF NOT EXISTS daily_token_usage (
+    user_id INTEGER NOT NULL,
+    usage_date TEXT NOT NULL,  -- YYYY-MM-DD UTC
+    tokens_used INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, usage_date),
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_usage_user_date ON daily_token_usage(user_id, usage_date);
 """
 
 

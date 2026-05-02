@@ -26,7 +26,6 @@ the dispatcher / RBAC layer where the bypass actually has to happen.
 
 from __future__ import annotations
 
-import asyncio
 
 import pytest
 

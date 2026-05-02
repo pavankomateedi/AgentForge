@@ -31,6 +31,7 @@ class AuditEvent:
     CHAT_REFUSED_UNASSIGNED = "chat_refused_unassigned"
     PATIENT_ASSIGNED = "patient_assigned"
     PATIENT_UNASSIGNED = "patient_unassigned"
+    BUDGET_EXCEEDED = "budget_exceeded"
 
 
 def record(

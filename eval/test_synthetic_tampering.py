@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import copy
 
-import pytest
 
 from agent.demo_data import DEMO_PATIENTS
 from agent.verifier import (

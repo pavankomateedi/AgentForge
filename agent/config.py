@@ -40,6 +40,10 @@ class Config:
     langfuse_secret_key: str | None
     langfuse_host: str
 
+    # Cost guard (ARCHITECTURE.md §8.4) — daily per-user token cap
+    # across both LLM calls (Plan + Reason). 0 disables the guard.
+    daily_token_budget: int
+
 
 def _bool(value: str | None, default: bool = False) -> bool:
     if value is None:
@@ -77,4 +81,7 @@ def get_config() -> Config:
         langfuse_public_key=(os.environ.get("LANGFUSE_PUBLIC_KEY") or "").strip() or None,
         langfuse_secret_key=(os.environ.get("LANGFUSE_SECRET_KEY") or "").strip() or None,
         langfuse_host=os.environ.get("LANGFUSE_HOST", "https://us.cloud.langfuse.com").strip(),
+        daily_token_budget=int(
+            os.environ.get("DAILY_TOKEN_BUDGET", "200000").strip() or 0
+        ),
     )
