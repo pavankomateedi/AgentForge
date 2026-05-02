@@ -1,7 +1,23 @@
 # Demo video script — Clinical Co-Pilot
 
-**Target length: ~3:00 single take.**
+**Target length: ~3:30 single take (Final submission).**
 Speak naturally — these are talking-point guidelines, not lines to read verbatim.
+
+---
+
+## Final-submission deltas vs Early Submission video
+
+If you already shot the Early Submission demo, these are the new things to weave in. Total new content ≈ 60 seconds. Keep the original beats; insert the additions where noted.
+
+| What's new | Where to mention | Talking point |
+| --- | --- | --- |
+| Two-pass verifier (real-id + value-tolerance) | Beat 3 | "Two checks: real source ID, and the number in the prose matches the cited record within tolerance. So 'real ID, wrong number' is also caught." |
+| Regenerate-once on verify fail | Beat 3 | "If verification fails, the LLM gets one second try with the failure message in context, then a structured fallback panel if it still fails." |
+| Domain rule engine | Beat 3 + Beat 5 | "Beyond source-id matching there's a deterministic rule engine — A1c thresholds, dosage ranges, drug interactions, metformin + creatinine. Findings are injected into the LLM's context with their exact wording, so critical findings appear in the briefing verbatim." |
+| Multi-user RBAC | New mid-script beat (after Beat 6) or in Beat 8 closing | "Three roles. Physician sees all four FHIR tools. Nurse sees three — no diagnostic problem list. Resident gets all four but every response is watermarked 'supervised review recommended'. Patient assignment refuses 403 before the agent even runs." |
+| Per-user daily token budget | Beat 8 closing | "Hard cap per user per day, configurable. Returns 429 with a friendly message when exceeded. Cost guard from day one, not a later." |
+| LangGraph state machine | Beat 8 closing | "The pipeline is now a LangGraph StateGraph — the verification node is a NAMED edge in an inspectable graph, not a probabilistic step in a loop." |
+| Auto-rendered topology in ARCHITECTURE.md | Beat 8 closing | "The graph diagram in ARCHITECTURE.md §2.3 is auto-rendered from the compiled graph, so the spec and the implementation can never drift." |
 
 ---
 
