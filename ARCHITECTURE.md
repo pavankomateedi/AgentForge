@@ -276,18 +276,38 @@ Boundary 3 is the load-bearing one. The audit identified that ACL is enforced in
 
 ### 2.3 LangGraph State Machine
 
+The pipeline is implemented as a **LangGraph `StateGraph`** in `agent/graph.py`. Each node is a function; transitions are explicit edges. The diagram below mirrors the actual compiled graph (`graph.get_graph().draw_mermaid()`), so the spec and the implementation are guaranteed to agree — re-rendering the graph and diffing against this section is part of the v1 CI plan.
+
 ```mermaid
-flowchart TD
-    Start([Request]) --> Plan["Plan<br/>LLM picks which tools to call"]
-    Plan --> Retrieve["Retrieve<br/>parallel FHIR calls<br/>structured records w/ provenance"]
-    Retrieve --> Reason["Reason<br/>LLM generates response<br/>with source-id tags"]
-    Reason --> Verify{"Verify<br/>(deterministic)"}
-    Verify -->|"pass"| Respond([Respond])
-    Verify -->|"fail, 1st time → regenerate"| Reason
-    Verify -->|"fail, 2nd time"| Refuse["Refuse<br/>+ structured data panel"]
+graph TD
+    __start__([Request]) --> plan
+    plan -.->|"no tool calls"| refuse_no_plan
+    plan -.->|"tools planned"| retrieve
+    retrieve -.->|"all tools errored"| refuse_no_data
+    retrieve -.->|"records retrieved"| rules
+    rules --> reason
+    reason --> verify
+    verify -.->|"pass"| respond
+    verify -.->|"fail (1st)"| reason_retry
+    reason_retry --> verify_retry
+    verify_retry -.->|"pass"| respond
+    verify_retry -.->|"fail (2nd)"| refuse_unverified
+    respond --> __end__([Respond])
+    refuse_no_plan --> __end__
+    refuse_no_data --> __end__
+    refuse_unverified --> __end__
+
+    classDef terminal fill:#D1FAE5,stroke:#065F46
+    classDef refusal fill:#FEF3C7,stroke:#92400E
+    class respond terminal
+    class refuse_no_plan,refuse_no_data,refuse_unverified refusal
 ```
 
-The graph is explicit and inspectable. Langfuse traces show every transition, which is what makes the verification claim defensible.
+**Why an explicit graph, not a ReAct loop.** A free-form ReAct loop makes verification _probabilistic_ — the agent might re-plan, might retry, might hallucinate around a verifier failure. The explicit graph makes verification _structural_: there is exactly one node where verification happens, exactly one edge for first-fail, exactly one edge for second-fail. Reviewers can point at the graph and say "this is where every claim gets fact-checked." Langfuse traces mirror the graph topology one-to-one, so an operator can debug a specific turn by walking the same nodes the architecture spec names.
+
+**Rules node.** Inserted between Retrieve and Reason. A pure-Python clinical rule engine (`agent/rules.py`) walks the per-turn retrieval bundle and emits structured findings (lab thresholds, dosage ranges, drug interactions, cross-rules like metformin + renal impairment). Findings are injected into the Reason node's context so the LLM surfaces critical findings in the briefing using the rule's exact wording. This is the "domain constraint enforcement" half of verification per the case-study doc; the source-id + value-tolerance verifier is the other half.
+
+**Checkpointing (v1 step).** `build_graph()` accepts an optional `checkpointer`; wiring `langgraph_checkpoint_sqlite.AsyncSqliteSaver` enables conversation resumability and deterministic audit replay (re-invoke the graph with a `thread_id` to walk the same nodes). State serialization requires moving the `anthropic.AsyncAnthropic` client out of the state dict and into the `RunnableConfig` — a small refactor flagged for v1 alongside the move to self-hosted Langfuse.
 
 ### 2.4 Tools
 

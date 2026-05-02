@@ -59,7 +59,10 @@ def _wipe_db_each_test() -> Iterator[None]:
     database_url = f"sqlite:///{_TEST_DB.as_posix()}"
     db.init_db(database_url)
     with db.connect(database_url) as conn:
+        # Order matters: child tables before users (FK target).
         for table in (
+            "daily_token_usage",
+            "patient_assignments",
             "password_reset_tokens",
             "audit_log",
             "users",
@@ -67,7 +70,8 @@ def _wipe_db_each_test() -> Iterator[None]:
             conn.execute(f"DELETE FROM {table}")
         conn.execute(
             "DELETE FROM sqlite_sequence WHERE name IN "
-            "('users','audit_log','password_reset_tokens')"
+            "('users','audit_log','password_reset_tokens',"
+            "'patient_assignments','daily_token_usage')"
         )
         conn.commit()
     yield
@@ -86,21 +90,34 @@ def client() -> Iterator[TestClient]:
         yield c
 
 
+def _assign_demo_patients(database_url: str, user_id: int) -> None:
+    """Seed both demo-patient assignments so /chat tests pass the RBAC
+    gate. Tests that specifically need to exercise the unassigned
+    refusal path can revoke afterward."""
+    from agent import rbac
+
+    for pid in ("demo-001", "demo-002"):
+        rbac.assign_patient(database_url, user_id=user_id, patient_id=pid)
+
+
 @pytest.fixture
 def seed_user(config) -> auth.User:
-    """Provision dr.chen with password TestPass123!."""
-    return auth.create_user(
+    """Provision dr.chen with password TestPass123! + demo assignments."""
+    user = auth.create_user(
         config.database_url,
         username="dr.chen",
         email="dr.chen@example.com",
         password="TestPass123!",
         role="physician",
     )
+    _assign_demo_patients(config.database_url, user.id)
+    return user
 
 
 @pytest.fixture
 def seed_user_mfa(config) -> dict[str, Any]:
-    """Provision dr.chen and enroll TOTP up front; returns user + secret."""
+    """Provision dr.chen, enroll TOTP up front, and seed demo
+    assignments; returns user + secret."""
     user = auth.create_user(
         config.database_url,
         username="dr.chen",
@@ -110,6 +127,7 @@ def seed_user_mfa(config) -> dict[str, Any]:
     secret = pyotp.random_base32()
     # Persist the secret directly (bypassing the API enrollment dance).
     auth._save_totp_secret(config.database_url, user.id, secret)
+    _assign_demo_patients(config.database_url, user.id)
     return {"user": user, "secret": secret, "password": "TestPass123!"}
 
 
@@ -159,7 +177,14 @@ def stub_run_turn(monkeypatch) -> dict[str, Any]:
     }
 
     async def fake_run_turn(
-        *, client, model, patient_id, user_message, user_id=None, user_role=None
+        *,
+        client,
+        model,
+        patient_id,
+        user_message,
+        user_id=None,
+        user_role=None,
+        available_tools=None,
     ) -> TurnResult:
         state["calls"].append(
             {
@@ -168,6 +193,7 @@ def stub_run_turn(monkeypatch) -> dict[str, Any]:
                 "model": model,
                 "user_id": user_id,
                 "user_role": user_role,
+                "available_tools": available_tools,
             }
         )
         trace = TurnTrace()

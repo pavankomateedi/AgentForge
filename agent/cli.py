@@ -16,7 +16,7 @@ import sys
 
 import asyncio
 
-from agent import auth, email as email_module
+from agent import audit, auth, email as email_module, rbac
 from agent.config import get_config
 from agent.db import connect, init_db
 
@@ -165,6 +165,66 @@ def cmd_deactivate(args: argparse.Namespace) -> None:
     print(f"Deactivated {args.username}.")
 
 
+def cmd_assign_patient(args: argparse.Namespace) -> None:
+    config = get_config()
+    init_db(config.database_url)
+    user = auth.get_user_by_username(config.database_url, args.username)
+    if user is None:
+        print(f"No user named {args.username!r}", file=sys.stderr)
+        sys.exit(1)
+    rbac.assign_patient(
+        config.database_url,
+        user_id=user.id,
+        patient_id=args.patient_id,
+    )
+    audit.record(
+        config.database_url,
+        audit.AuditEvent.PATIENT_ASSIGNED,
+        user_id=user.id,
+        details={"patient_id": args.patient_id, "by": "cli"},
+    )
+    print(f"Assigned {args.username} -> {args.patient_id}.")
+
+
+def cmd_revoke_patient(args: argparse.Namespace) -> None:
+    config = get_config()
+    init_db(config.database_url)
+    user = auth.get_user_by_username(config.database_url, args.username)
+    if user is None:
+        print(f"No user named {args.username!r}", file=sys.stderr)
+        sys.exit(1)
+    rbac.revoke_assignment(
+        config.database_url,
+        user_id=user.id,
+        patient_id=args.patient_id,
+    )
+    audit.record(
+        config.database_url,
+        audit.AuditEvent.PATIENT_UNASSIGNED,
+        user_id=user.id,
+        details={"patient_id": args.patient_id, "by": "cli"},
+    )
+    print(f"Revoked {args.username} -> {args.patient_id}.")
+
+
+def cmd_list_assignments(args: argparse.Namespace) -> None:
+    config = get_config()
+    init_db(config.database_url)
+    user = auth.get_user_by_username(config.database_url, args.username)
+    if user is None:
+        print(f"No user named {args.username!r}", file=sys.stderr)
+        sys.exit(1)
+    patients = rbac.list_assigned_patients(
+        config.database_url, user_id=user.id
+    )
+    if not patients:
+        print(f"{args.username} has no patient assignments.")
+        return
+    print(f"{args.username} ({user.role}) is assigned to:")
+    for p in patients:
+        print(f"  - {p}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="agent.cli", description=__doc__)
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -202,6 +262,29 @@ def main() -> None:
     )
     p_test_email.add_argument("email", help="Recipient email address")
     p_test_email.set_defaults(func=cmd_send_test_email)
+
+    p_assign = sub.add_parser(
+        "assign-patient",
+        help="Grant a user access to a patient. Required for /chat to succeed.",
+    )
+    p_assign.add_argument("username")
+    p_assign.add_argument("patient_id")
+    p_assign.set_defaults(func=cmd_assign_patient)
+
+    p_revoke = sub.add_parser(
+        "revoke-patient",
+        help="Remove a user's access to a patient.",
+    )
+    p_revoke.add_argument("username")
+    p_revoke.add_argument("patient_id")
+    p_revoke.set_defaults(func=cmd_revoke_patient)
+
+    p_list_a = sub.add_parser(
+        "list-assignments",
+        help="Show which patients a user is assigned to.",
+    )
+    p_list_a.add_argument("username")
+    p_list_a.set_defaults(func=cmd_list_assignments)
 
     args = parser.parse_args()
     args.func(args)
