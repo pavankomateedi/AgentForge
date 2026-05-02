@@ -14,6 +14,14 @@ export type Verification = {
   value_mismatches: ValueMismatch[]
 }
 
+export type RuleFinding = {
+  rule_id: string
+  category: string
+  severity: 'info' | 'warning' | 'critical'
+  message: string
+  evidence_source_ids: string[]
+}
+
 export type ToolCall = {
   name: string
   input: Record<string, unknown>
@@ -32,6 +40,7 @@ export type Trace = {
   plan_tool_calls: ToolCall[]
   retrieved_source_ids: string[]
   verification: Verification | null
+  rule_findings: RuleFinding[]
   regenerated: boolean
   refused: boolean
   refusal_reason: string

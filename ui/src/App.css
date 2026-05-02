@@ -36,6 +36,7 @@
 
   /* Layout */
   --content-max: 720px;
+  --workspace-max: 1280px;
   --gap: 16px;
 }
 
@@ -45,6 +46,53 @@
   max-width: var(--content-max);
   margin: 0 auto;
   padding: 32px 20px 64px;
+}
+
+/* Wider shell for the post-login workspace so the form + result cards
+   sit side-by-side without scrolling on a 1080p+ screen. */
+.app.workspace {
+  max-width: var(--workspace-max);
+  padding: 24px 24px 32px;
+}
+
+/* Two-column grid: form on the left (compact), result cards on the
+   right (flexible). Stacks vertically below 980px so the layout still
+   reads cleanly on tablets / phones. */
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 380px) 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 980px) {
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+  .app.workspace {
+    padding: 20px 16px 32px;
+  }
+}
+
+.workspace-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.workspace-result {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Three small cards in a row under the briefing — verification, rule
+   findings, trace. Wraps on narrow widths so each card keeps its
+   minimum readable width. */
+.workspace-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
 }
 
 .page-header {
@@ -84,7 +132,25 @@ main {
 /* Form */
 
 .form-card .field + .field {
-  margin-top: 16px;
+  margin-top: 14px;
+}
+
+/* In the workspace context the form sits in a narrow left column; trim
+   spacing + textarea height so it doesn't dominate the viewport. */
+.workspace .form-card {
+  padding: 16px 18px;
+}
+
+.workspace .form-card textarea {
+  min-height: 72px;
+}
+
+.workspace .form-card .actions {
+  margin-top: 14px;
+}
+
+.workspace .form-card .examples {
+  margin-top: 12px;
 }
 
 label {
@@ -385,6 +451,261 @@ button.primary:disabled {
     opacity: 1;
     transform: scale(1.15);
   }
+}
+
+/* =====================================================================
+   Workspace cards — Briefing / Verification / Rule findings / Trace
+   Compact, dense, designed to fit a 1080p+ screen without scrolling.
+   Stack vertically below 980px.
+   ================================================================== */
+
+/* Compact card spacing for the workspace (overrides .card defaults). */
+.workspace .card,
+.briefing-card,
+.verification-card,
+.findings-card,
+.trace-card,
+.workspace-form .card {
+  padding: 16px 18px;
+  animation: fade-in 200ms ease-out both;
+}
+
+.briefing-card .card-body {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--text-primary);
+}
+
+.briefing-card .response {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+/* Shared card header used by all four workspace cards. */
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Compact card titles for the right-column meta cards. The login
+   card keeps its larger .card-title. */
+.workspace .card-title.compact {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-secondary);
+}
+
+.workspace .card-title.compact .count {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* Briefing card title stays slightly larger so it reads as the page
+   focus. */
+.briefing-card .card-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* Placeholder / empty-state text inside the meta cards. */
+.placeholder {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* Verification card — key/value list. */
+.kv-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kv-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 13px;
+}
+
+.kv-key {
+  color: var(--text-muted);
+}
+
+.kv-val {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.kv-val.ok-text {
+  color: var(--success-text);
+}
+
+.kv-val.warn-text {
+  color: var(--warn-text);
+}
+
+/* Rule findings card — color-coded per severity. */
+.findings-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.finding {
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  background: #f8fafc;
+  border-color: var(--border);
+}
+
+.finding-warning {
+  background: var(--warn-bg);
+  border-color: var(--warn-border);
+}
+
+.finding-critical {
+  /* Soft amber, NOT red — per project preference (no red backgrounds). */
+  background: #fef3c7;
+  border-color: #fcd34d;
+}
+
+.finding-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.severity {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.sev-info {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
+.sev-warning {
+  background: #fef9c3;
+  color: var(--warn-text);
+}
+
+.sev-critical {
+  background: #fde68a;
+  color: #92400e;
+}
+
+.rule-id {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.finding-message {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+
+/* Trace card — per-node timing bars. */
+.timing-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.timing-row {
+  display: grid;
+  grid-template-columns: 80px 1fr 50px;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.timing-label {
+  color: var(--text-muted);
+}
+
+.timing-bar-wrap {
+  height: 6px;
+  background: #f1f5f9;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.timing-bar {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 200ms ease-out;
+}
+
+.timing-ms {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.trace-id {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.trace-link {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.trace-link:hover {
+  text-decoration: underline;
 }
 
 /* Login page */

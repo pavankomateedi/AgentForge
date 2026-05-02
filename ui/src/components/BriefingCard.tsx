@@ -18,7 +18,7 @@ const LOADING_STAGES = [
   'Writing your briefing…',
 ]
 
-export function ResponsePanel({
+export function BriefingCard({
   loading,
   result,
   elapsed,
@@ -39,10 +39,10 @@ export function ResponsePanel({
   }, [loading])
 
   return (
-    <section className="card response-card" aria-live="polite">
-      <div className="response-header">
-        <h2 className="response-title">Briefing</h2>
-        <div className="response-meta">
+    <section className="card briefing-card" aria-live="polite">
+      <div className="card-header">
+        <h2 className="card-title">Briefing</h2>
+        <div className="card-meta">
           {!loading && result && (
             <>
               {result.verified ? (
@@ -65,10 +65,7 @@ export function ResponsePanel({
                   Verified
                 </span>
               ) : (
-                <span
-                  className="badge needs-review"
-                  aria-label="Needs review"
-                >
+                <span className="badge needs-review" aria-label="Needs review">
                   Needs review
                 </span>
               )}
@@ -80,15 +77,19 @@ export function ResponsePanel({
         </div>
       </div>
 
-      <div className="response-body">
+      <div className="card-body">
+        {!loading && !result && !error && (
+          <p className="placeholder">
+            Pick a patient and ask a question to see the verified briefing.
+          </p>
+        )}
+
         {loading && (
           <div className="thinking" role="status" aria-live="polite">
             <span className="dot" aria-hidden="true" />
             <span className="dot" aria-hidden="true" />
             <span className="dot" aria-hidden="true" />
-            <span className="thinking-label">
-              {LOADING_STAGES[stageIndex]}
-            </span>
+            <span className="thinking-label">{LOADING_STAGES[stageIndex]}</span>
           </div>
         )}
 
@@ -96,11 +97,7 @@ export function ResponsePanel({
           <div className="error-block" role="alert">
             <p className="error">{error}</p>
             {onRetry && (
-              <button
-                type="button"
-                className="ghost"
-                onClick={onRetry}
-              >
+              <button type="button" className="ghost" onClick={onRetry}>
                 Try again
               </button>
             )}

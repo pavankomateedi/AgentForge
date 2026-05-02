@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { ChatForm } from './components/ChatForm'
-import { ResponsePanel } from './components/ResponsePanel'
+import { BriefingCard } from './components/BriefingCard'
+import { VerificationCard } from './components/VerificationCard'
+import { RuleFindingsCard } from './components/RuleFindingsCard'
+import { TraceCard } from './components/TraceCard'
 import { Login } from './components/Login'
 import { MfaSetup } from './components/MfaSetup'
 import { MfaChallenge } from './components/MfaChallenge'
@@ -214,36 +217,51 @@ function App() {
     )
   }
 
+  // Once a result is in, the empty placeholders in the right-column
+  // cards swap to populated content. Loading state is per-card so the
+  // briefing card can show a thinking indicator while the meta cards
+  // show "checking…" placeholders. Error in the briefing card; the
+  // meta cards quietly stay placeholder.
   return (
-    <div className="app">
+    <div className="app workspace">
       <Header user={user} onLogout={onLogout} loggingOut={loggingOut} />
 
-      <main>
-        <ChatForm
-          patientId={patientId}
-          setPatientId={setPatientId}
-          message={message}
-          setMessage={setMessage}
-          loading={loading}
-          onSubmit={ask}
-        />
-
-        {!showResult && (
-          <p className="empty-hint">
-            Pick a question above. Every clinical fact in the response is verified
-            against a real source record before it reaches you.
-          </p>
-        )}
-
-        {showResult && (
-          <ResponsePanel
+      <main className="workspace-grid">
+        <aside className="workspace-form">
+          <ChatForm
+            patientId={patientId}
+            setPatientId={setPatientId}
+            message={message}
+            setMessage={setMessage}
             loading={loading}
-            result={result}
-            elapsed={elapsed}
-            error={error}
-            onRetry={!loading && error ? ask : undefined}
+            onSubmit={ask}
           />
-        )}
+        </aside>
+
+        <section className="workspace-result">
+          <BriefingCard
+            loading={loading}
+            result={showResult ? result : null}
+            elapsed={elapsed}
+            error={showResult ? error : null}
+            onRetry={!loading && showResult && error ? ask : undefined}
+          />
+
+          <div className="workspace-meta">
+            <VerificationCard
+              loading={loading}
+              result={showResult ? result : null}
+            />
+            <RuleFindingsCard
+              loading={loading}
+              result={showResult ? result : null}
+            />
+            <TraceCard
+              loading={loading}
+              result={showResult ? result : null}
+            />
+          </div>
+        </section>
       </main>
     </div>
   )
