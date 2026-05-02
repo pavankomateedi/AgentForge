@@ -18,6 +18,9 @@ itsdangerous>=2.2.0
 pyotp>=2.9.0
 # Observability
 langfuse>=4.0.0
+# Orchestration
+langgraph>=1.0.0
+langgraph-checkpoint-sqlite>=3.0.0
 
 # ---- Dev / test ----
 pytest>=8.0.0
