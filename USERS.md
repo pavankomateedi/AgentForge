@@ -160,14 +160,30 @@ Each use case below specifies (a) the trigger, (b) what the agent does, (c) why 
 
 **Verification requirements.** The verifier runs on every turn independently — turn 2's response cannot cite a `source_id` from turn 1's retrieval bundle. The locked `patient_id` survives across turns; if the user pivots to a different patient, the UI flushes history (different conversation). The audit log records `history_len` per turn so a multi-turn session can be reconstructed end-to-end.
 
+### UC-8: Conversational Follow-Up
+
+**Trigger.** Any second-or-later question in a conversation that was started by UC-1 / UC-3 / UC-4 / UC-6. Examples that all hit this same shape: _"And what about her LDL?"_, _"Refresh that — is the lisinopril still 10 mg?"_, _"What did Dr. Patel write last visit?"_
+
+**What the agent does.** Carries the prior turns to the LLM via `ChatRequest.history` (server-capped to `MAX_HISTORY_TURNS = 8`). The history binds pronouns and shorthand (_her_, _that_, _the lisinopril_, _last visit_) to the entities already established, so the user doesn't restate the patient's name, doesn't repeat the lab, and doesn't reset the scope. Each turn re-runs the full Plan → Retrieve → Rules → Reason → Verify pipeline against fresh tool output — history disambiguates intent, it never substitutes for retrieval.
+
+**Why this is its own use case.** UC-2 / UC-3 / UC-6 / UC-7 are _shapes of follow-up_ (delta, trend, encounter recap, multi-turn trend). UC-8 is the _generic capability_ that makes all of those clinically usable — a follow-up that resolves "her" or "that" without forcing the clinician to re-anchor every question. It maps directly to the original gap: graded feedback that "/chat is stateless… UC-2 and UC-3 both need follow-up context. Adding `history: list[dict]` to ChatRequest and passing it through `run_turn` would fix this." That fix is what this use case names.
+
+**Why an agent.** Every other surface (flowsheet, problem-list pane, med list) is stateless by construction. Each click resets context. The conversational shape is the one place a clinician can ask three short questions in a row and have them compose. Without it, the average follow-up cost is "type the patient name + the entity again" — which the case study's 60–90-second window cannot afford.
+
+**What's visible to the user.** The transcript stays on screen — every prior question + briefing remains visible above the form. localStorage persists the transcript so a page refresh doesn't lose it. The form's "_N prior turns in context_" indicator confirms what the agent will see on the next ask. Patient change flushes (different patient = different conversation, mirrors the server's patient-subject lock).
+
+**Tools required.** None new — UC-8 reuses whichever tools the underlying follow-up needs. The capability is in the plumbing: `ChatRequest.history` → `run_turn(history=...)` → graph state → both Plan and Reason node messages.
+
+**Verification requirements.** Each turn is verified independently. The verifier passes only if every cited `source_id` exists in _that turn's_ retrieval bundle — a turn cannot cite IDs that were valid only in a prior turn's bundle, even if the prior bundle is "implicitly" carried via history. The locked `patient_id` survives across turns; the structural patient-subject lock in `agent/tools.py` refuses any tool call against a different patient regardless of what history says. The audit log records `history_len` per turn so the conversation can be reconstructed end-to-end. Tested by `eval/test_chat_history.py` (8 cases) including the patient-id-wins-over-history regression check.
+
 ---
 
 ## Capability → Use Case Trace
 
 | Capability | Implementation | Justifying use cases |
 |---|---|---|
-| Multi-turn conversation | `ChatRequest.history` → graph state → Plan + Reason | UC-1 → UC-2, UC-3, UC-6, **UC-7** |
-| Conversation memory within session | UI keeps last 8 turns; server caps to MAX_HISTORY_TURNS=8 | UC-2, UC-3, UC-6, **UC-7** |
+| Multi-turn conversation | `ChatRequest.history` → graph state → Plan + Reason | UC-2, UC-3, UC-6, UC-7, **UC-8** (the capability is the use case) |
+| Conversation memory within session | UI keeps last 8 turns + persists to localStorage; server caps to MAX_HISTORY_TURNS=8 | UC-2, UC-3, UC-6, UC-7, **UC-8** |
 | Tool chaining (parallel) | `execute_tools_parallel` + Plan prompt nudges parallel calls | UC-1 (4-tool fan-out), UC-2 (encounters + labs + meds), UC-7 |
 | Encounter retrieval | `get_recent_encounters` (5th tool) | UC-1, UC-2, **UC-6**, UC-7 |
 | Source attribution | `verifier.py` source-id matching pass | All use cases |
