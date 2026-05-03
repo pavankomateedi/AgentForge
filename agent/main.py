@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -72,6 +73,141 @@ def _bootstrap_default_user_if_empty(config: Config) -> None:
     )
 
 
+def _bootstrap_extra_users(config: Config) -> None:
+    """Seed any users listed in EXTRA_USERS_JSON. Idempotent: existing
+    usernames are skipped, existing patient assignments are no-ops.
+
+    Survives Railway-style ephemeral filesystems — every cold start
+    re-seeds whatever the env var declares, so demo accounts (nurse,
+    resident, second physician) persist across redeploys without manual
+    CLI intervention.
+
+    Schema (JSON list):
+        [
+          {
+            "username":     "nurse.adams",
+            "email":        "nurse.adams@example.com",
+            "password":     "NurseDemo!2026",
+            "role":         "nurse",
+            "patients":     ["demo-001"],
+            "totp_secret":  "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+          }
+        ]
+
+    Optional `totp_secret` pre-enrolls MFA with the given base32 secret
+    so a known TOTP code can be generated externally — the only safe
+    way to hand graders a working credential without per-grader
+    enrollment ceremony. The secret MUST be valid base32; an invalid
+    secret leaves the account un-enrolled (forces in-app enrollment on
+    first login). This pattern is acceptable for synthetic-data demos
+    only — see HIPAA_COMPLIANCE.md.
+
+    Validation: missing keys, unknown roles, malformed JSON → log and
+    skip the offending entry. Other entries still process. We never
+    crash the lifespan over a bad env var."""
+    if not config.extra_users_json:
+        return
+    try:
+        entries = json.loads(config.extra_users_json)
+    except json.JSONDecodeError as e:
+        log.error("EXTRA_USERS_JSON is not valid JSON; skipping. Error: %s", e)
+        return
+    if not isinstance(entries, list):
+        log.error("EXTRA_USERS_JSON must be a JSON list; got %s. Skipping.", type(entries).__name__)
+        return
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            log.warning("EXTRA_USERS_JSON entry not an object; skipping: %r", entry)
+            continue
+        username = entry.get("username")
+        email = entry.get("email")
+        password = entry.get("password")
+        role = entry.get("role", "physician")
+        patients = entry.get("patients", []) or []
+
+        if not (username and email and password):
+            log.warning(
+                "EXTRA_USERS_JSON entry missing username/email/password; skipping: %r",
+                entry,
+            )
+            continue
+        if not rbac.is_valid_role(role):
+            log.warning(
+                "EXTRA_USERS_JSON entry has unknown role %r; skipping: %s",
+                role, username,
+            )
+            continue
+
+        existing = auth.get_user_by_username(config.database_url, username)
+        if existing is None:
+            user = auth.create_user(
+                config.database_url,
+                username=username,
+                email=email,
+                password=password,
+                role=role,
+            )
+            log.info(
+                "bootstrap: extra user %r created (id=%d, role=%s)",
+                user.username, user.id, user.role,
+            )
+            user_id = user.id
+        else:
+            log.info(
+                "bootstrap: extra user %r already exists (id=%d); ensuring assignments",
+                existing.username, existing.id,
+            )
+            user_id = existing.id
+
+        for pid in patients:
+            if not isinstance(pid, str):
+                log.warning(
+                    "EXTRA_USERS_JSON: non-string patient id for %r; skipping: %r",
+                    username, pid,
+                )
+                continue
+            rbac.assign_patient(config.database_url, user_id=user_id, patient_id=pid)
+        if patients:
+            log.info(
+                "bootstrap: extra user %r assigned to %d patient(s): %s",
+                username, len(patients), patients,
+            )
+
+        totp_secret = entry.get("totp_secret")
+        if totp_secret:
+            _pre_enroll_totp(config.database_url, user_id, username, totp_secret)
+
+
+def _pre_enroll_totp(
+    database_url: str, user_id: int, username: str, secret: str
+) -> None:
+    """Pre-enroll a user's TOTP with a known base32 secret. Idempotent —
+    running twice with the same secret is a no-op. Invalid base32 logs
+    and skips (the user simply isn't pre-enrolled and will go through
+    the normal enrollment flow on first login)."""
+    import pyotp
+
+    if not isinstance(secret, str) or not secret.strip():
+        log.warning(
+            "EXTRA_USERS_JSON: totp_secret for %r is empty; skipping pre-enroll",
+            username,
+        )
+        return
+    try:
+        # pyotp accepts the secret silently and validates lazily on .now().
+        pyotp.TOTP(secret).now()
+    except Exception as e:
+        log.warning(
+            "EXTRA_USERS_JSON: totp_secret for %r is not valid base32 "
+            "(%s); skipping pre-enroll",
+            username, e,
+        )
+        return
+    auth._save_totp_secret(database_url, user_id, secret)
+    log.info("bootstrap: pre-enrolled TOTP for %r", username)
+
+
 def _backfill_assignments_for_legacy_users(config: Config) -> None:
     """Any existing physician with zero patient assignments gets default
     assignments to every shipped demo patient. Keeps pre-RBAC users
@@ -112,6 +248,7 @@ async def lifespan(app: FastAPI):
     )
     init_db(_config.database_url)
     _bootstrap_default_user_if_empty(_config)
+    _bootstrap_extra_users(_config)
     _backfill_assignments_for_legacy_users(_config)
     _client = anthropic.AsyncAnthropic(api_key=_config.anthropic_api_key)
     observability.init(

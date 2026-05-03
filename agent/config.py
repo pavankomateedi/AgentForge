@@ -44,6 +44,13 @@ class Config:
     # across both LLM calls (Plan + Reason). 0 disables the guard.
     daily_token_budget: int
 
+    # Extra users to seed alongside DEFAULT_USER_*. JSON list of
+    # {username, email, password, role, patients[]} entries. Idempotent —
+    # users that already exist are left alone. Useful on Railway-style
+    # ephemeral filesystems so a nurse / resident demo account survives
+    # redeploys without manual CLI intervention.
+    extra_users_json: str | None
+
 
 def _bool(value: str | None, default: bool = False) -> bool:
     if value is None:
@@ -84,4 +91,5 @@ def get_config() -> Config:
         daily_token_budget=int(
             os.environ.get("DAILY_TOKEN_BUDGET", "200000").strip() or 0
         ),
+        extra_users_json=(os.environ.get("EXTRA_USERS_JSON") or "").strip() or None,
     )

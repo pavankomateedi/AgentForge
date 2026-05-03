@@ -22,6 +22,31 @@
 
 ---
 
+## Grader credentials
+
+Two pre-enrolled accounts on the live deployment. **MFA is mandatory**, so the TOTP secrets below are published so a 6-digit code can be generated without the in-app QR enrollment dance. (Synthetic data only — publishing TOTP secrets like this would be a security violation against real PHI; see [HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md) §164.312(d).)
+
+| Account | Password | Role | Patients | TOTP secret (base32) |
+|---|---|---|---|---|
+| `grader.demo` | `GraderDemo!2026` | physician | all 5 demo patients | `6AV66JNIZTTPEBNBIUQWE2M7GVPNKDBD` |
+| `nurse.adams` | `NurseDemo!2026` | nurse | `demo-001` only — exercises the RBAC refusal path on every other patient | `LMLIHJIU6JGPW2KCFYDVLGETQX54QUFG` |
+
+**Get a current 6-digit code three ways:**
+
+```bash
+# 1. One-liner with the bundled pyotp
+python -c "import pyotp; print(pyotp.TOTP('6AV66JNIZTTPEBNBIUQWE2M7GVPNKDBD').now())"
+
+# 2. Authy / Google Authenticator / 1Password — add account, choose
+#    "Enter setup key", paste the base32 secret above
+```
+
+3. Online generator: paste the secret into [totp.danhersam.com](https://totp.danhersam.com/) (or any equivalent) — only acceptable here because the secret is already public for synthetic-data demo purposes.
+
+Sign-in flow: enter username + password → MFA challenge appears (not enrollment) → enter the 6-digit code → land on the workspace. Sessions idle out after 5 minutes; absolute max 8 hours.
+
+---
+
 ## Stack
 
 | Layer | What's actually running |
