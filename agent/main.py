@@ -111,6 +111,12 @@ def _bootstrap_extra_users(config: Config) -> None:
     first login). This pattern is acceptable for synthetic-data demos
     only — see HIPAA_COMPLIANCE.md.
 
+    Optional `bypass_mfa: true` opts the account out of the MFA
+    challenge entirely — password is enough to land in the workspace.
+    Independent of `totp_secret`. Audit log records LOGIN_MFA_BYPASSED
+    on every such login so the carve-out is observable. NEVER set on
+    a real-PHI account.
+
     Validation: missing keys, unknown roles, malformed JSON → log and
     skip the offending entry. Other entries still process. We never
     crash the lifespan over a bad env var."""
@@ -186,6 +192,20 @@ def _bootstrap_extra_users(config: Config) -> None:
         totp_secret = entry.get("totp_secret")
         if totp_secret:
             _pre_enroll_totp(config.database_url, user_id, username, totp_secret)
+
+        # bypass_mfa is independent of totp_secret. Honored on every
+        # cold start so flipping the flag in EXTRA_USERS_JSON takes
+        # effect after a redeploy without manual DB poking.
+        if entry.get("bypass_mfa") is True:
+            auth._set_bypass_mfa(config.database_url, user_id, True)
+            log.info(
+                "bootstrap: %r flagged bypass_mfa=true (synthetic-data only)",
+                username,
+            )
+        elif entry.get("bypass_mfa") is False:
+            # Explicit False reconciles a previously-flagged account
+            # back to mandatory MFA on the next cold start.
+            auth._set_bypass_mfa(config.database_url, user_id, False)
 
 
 def _pre_enroll_totp(

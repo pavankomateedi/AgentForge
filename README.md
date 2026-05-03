@@ -26,12 +26,18 @@
 
 Two pre-enrolled accounts on the live deployment. **MFA is mandatory**, so the TOTP secrets below are published so a 6-digit code can be generated without the in-app QR enrollment dance. (Synthetic data only — publishing TOTP secrets like this would be a security violation against real PHI; see [HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md) §164.312(d).)
 
-| Account | Password | Role | Patients | TOTP secret (base32) |
+| Account | Password | Role | Patients | MFA |
 |---|---|---|---|---|
-| `grader.demo` | `GraderDemo!2026` | physician | all 5 demo patients | `6AV66JNIZTTPEBNBIUQWE2M7GVPNKDBD` |
-| `nurse.adams` | `NurseDemo!2026` | nurse | `demo-001` only — exercises the RBAC refusal path on every other patient | `LMLIHJIU6JGPW2KCFYDVLGETQX54QUFG` |
+| `grader.demo` | `GraderDemo!2026` | physician | all 5 demo patients | Pre-enrolled — TOTP secret `6AV66JNIZTTPEBNBIUQWE2M7GVPNKDBD` |
+| `nurse.adams` | `NurseDemo!2026` | nurse | `demo-001` only — exercises the RBAC refusal path on every other patient | Pre-enrolled — TOTP secret `LMLIHJIU6JGPW2KCFYDVLGETQX54QUFG` |
+| `dr.pavan` | `PavanDaily!2026` | physician | all 5 demo patients | **Bypassed** (`bypass_mfa: true`) — password-only login. Emits a `LOGIN_MFA_BYPASSED` audit row on every login. Synthetic data only; the carve-out is documented in [HIPAA_COMPLIANCE.md §164.312(d)](./HIPAA_COMPLIANCE.md). |
 
-**Get a current 6-digit code three ways:**
+**Sign-in flows:**
+
++ `dr.pavan` — type username + password, hit Enter, you're in. No MFA. (Daily-use account; password-only is acceptable here only because there is zero real PHI on this deployment — see [HIPAA_COMPLIANCE.md §164.312(d)](./HIPAA_COMPLIANCE.md).)
++ `grader.demo` / `nurse.adams` — type username + password → MFA challenge appears (not enrollment) → enter the 6-digit code → land on the workspace.
+
+**Get a current 6-digit MFA code (for the pre-enrolled accounts) three ways:**
 
 ```bash
 # 1. One-liner with the bundled pyotp
@@ -43,7 +49,7 @@ python -c "import pyotp; print(pyotp.TOTP('6AV66JNIZTTPEBNBIUQWE2M7GVPNKDBD').no
 
 3. Online generator: paste the secret into [totp.danhersam.com](https://totp.danhersam.com/) (or any equivalent) — only acceptable here because the secret is already public for synthetic-data demo purposes.
 
-Sign-in flow: enter username + password → MFA challenge appears (not enrollment) → enter the 6-digit code → land on the workspace. Sessions idle out after 5 minutes; absolute max 8 hours.
+Sessions idle out after 5 minutes; absolute max 8 hours, regardless of which account you used.
 
 ---
 

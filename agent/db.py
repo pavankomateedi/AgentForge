@@ -28,6 +28,10 @@ CREATE TABLE IF NOT EXISTS users (
     locked_until TEXT,
     totp_secret TEXT,
     totp_enrolled INTEGER NOT NULL DEFAULT 0,
+    -- Opt-in bypass of the MFA challenge for clearly-labeled
+    -- synthetic-data demo accounts. NEVER set on a user that touches
+    -- real ePHI. Defaults to 0 so existing accounts keep mandatory MFA.
+    bypass_mfa INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -90,13 +94,32 @@ def _path_from_url(database_url: str) -> Path:
 
 
 def init_db(database_url: str) -> None:
-    """Create tables if missing. Idempotent."""
+    """Create tables if missing. Idempotent. Also runs lightweight
+    column-level migrations for fields added after a DB was first
+    created — required because CREATE TABLE IF NOT EXISTS is a no-op
+    against an existing table even if columns are missing."""
     path = _path_from_url(database_url)
     if path.parent != Path("."):
         path.parent.mkdir(parents=True, exist_ok=True)
     with connect(database_url) as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
         conn.commit()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns that postdate the original schema. Each block is
+    idempotent: it checks PRAGMA table_info and only ALTERs if the
+    column is missing. Keeps the function safe to run on every cold
+    start (which is what init_db does)."""
+    user_cols = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(users)").fetchall()
+    }
+    if "bypass_mfa" not in user_cols:
+        conn.execute(
+            "ALTER TABLE users ADD COLUMN bypass_mfa INTEGER NOT NULL DEFAULT 0"
+        )
 
 
 @contextmanager
