@@ -358,13 +358,17 @@ Optional, for production. Without `RESEND_API_KEY` set, password-reset still wor
 |---|---|
 | Forked repo | This repository |
 | Setup guide | This README |
+| **Pre-enrolled grader credentials** | "Grader credentials" section at the top of this README — `grader.demo` (physician) + `nurse.adams` (nurse), both pre-enrolled with published TOTP secrets so MFA does not block live walkthrough |
 | Audit document | [AUDIT.md](./AUDIT.md) |
-| User doc | [USERS.md](./USERS.md) |
+| User doc — 7 use cases (UC-1 → UC-7) | [USERS.md](./USERS.md) |
 | Architecture doc | [ARCHITECTURE.md](./ARCHITECTURE.md) |
-| Cost analysis | [ARCHITECTURE.md §8](./ARCHITECTURE.md) |
+| HIPAA compliance posture + AWS blueprint | [HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md) + [terraform/](./terraform/) |
+| Cost analysis | [ARCHITECTURE.md §8](./ARCHITECTURE.md), [COST_ANALYSIS.md](./COST_ANALYSIS.md) |
 | Deployed app | Railway public URL at top of this README |
 | Demo video | _(link at top)_ |
-| Eval dataset | [`eval/`](./eval/) directory; run `make eval` (or `make eval-live` for the LLM tests) |
+| Eval dataset (200 tests, 4 layers) | [`eval/`](./eval/) directory; run `make eval` (or `make eval-live` for the LLM tests) |
+| **Multi-turn conversation support** | `ChatRequest.history` field, capped to 8 turns server-side; UI carries history per conversation. Tested by [eval/test_chat_history.py](./eval/test_chat_history.py) |
+| **5 FHIR tools** incl. `get_recent_encounters` | [agent/tools.py](./agent/tools.py); RBAC whitelist in [agent/rbac.py](./agent/rbac.py) |
 
 ---
 
