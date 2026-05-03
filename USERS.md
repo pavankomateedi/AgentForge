@@ -182,6 +182,90 @@ If `ARCHITECTURE.md` proposes a capability not in this table, it gets cut.
 
 ---
 
+## Authorization Model (v0)
+
+The persona above (Dr. Maya Chen) is the target _clinical_ user. The
+system also has a concrete _operational_ authorization model — three
+roles, a role-to-tool whitelist, a per-user patient-assignment gate,
+and a documented MFA carve-out for synthetic-data demo accounts.
+
+### Roles and tool whitelist
+
+Source of truth: [`agent/rbac.py`](./agent/rbac.py). The agent's Plan
+node sees only the subset of tools allowed for the caller's role —
+the LLM literally cannot invoke a tool its role isn't permitted to.
+
+| Tool | Physician | Nurse | Resident |
+|---|---|---|---|
+| `get_patient_summary` | ✅ | ✅ | ✅ |
+| `get_problem_list` | ✅ | ❌ | ✅ |
+| `get_medication_list` | ✅ | ✅ | ✅ |
+| `get_recent_labs` | ✅ | ✅ | ✅ |
+| `get_recent_encounters` | ✅ | ✅ | ✅ |
+
+Why nurse is excluded from `get_problem_list`: ICD-10 diagnostic
+coding is physician-scope in the institutional pattern this
+implementation models. Visit-summary access via
+`get_recent_encounters` IS within nurse scope (intake, triage,
+follow-up calls), which is why that tool is enabled for all three
+roles. The resident role is physician-equivalent for tool access but
+**every response is watermarked** "supervised review recommended" by
+[`agent/main.py`](./agent/main.py) so downstream consumers know the
+briefing came from a trainee.
+
+### Patient assignment gate
+
+`/chat` upstream of the orchestrator: if the caller is not assigned
+to the requested patient, the request is **refused with 403
+`CHAT_REFUSED_UNASSIGNED`** and the LLM never runs. Assignments live
+in `patient_assignments` (composite PK on user_id, patient_id) and
+are seeded by the bootstrap below. A physician with zero assignments
+gets backfilled to all 5 demo patients on the next cold start to
+preserve the demo flow; nurse and resident assignments are explicit
+only.
+
+### MFA model and the documented carve-out
+
+Default: **MFA mandatory.** Every account goes through TOTP
+enrollment on first login and a TOTP challenge on every subsequent
+login before any `/chat` access. Secret stored per-user, never logged.
+
+Carve-out: a single account flagged `bypass_mfa: true` in
+`EXTRA_USERS_JSON` lands in the workspace with password only. Used
+only on **synthetic-data demo deployments** for the operator's
+daily-use account. Every bypass login emits a distinct
+`LOGIN_MFA_BYPASSED` audit row so the carve-out is queryable from
+the trail rather than silent. Documented in
+[`HIPAA_COMPLIANCE.md` §164.312(d)](./HIPAA_COMPLIANCE.md) and
+**must be removed before this deployment is allowed to process real
+PHI**.
+
+### Demo accounts on the live deployment
+
+Three accounts ship via the `EXTRA_USERS_JSON` bootstrap. All three
+exist purely to exercise the authorization model on the live URL —
+the deployment holds **zero real PHI**.
+
+| Account | Role | Patients | Auth mode | Purpose |
+|---|---|---|---|---|
+| `dr.pavan` | physician | all 5 | **password only** (`bypass_mfa: true`) | Operator's daily-use account; demonstrates UC-1 → UC-7 with no MFA friction |
+| `grader.demo` | physician | all 5 | password + TOTP (pre-enrolled) | Hand-off account for graders / reviewers; pre-enrolled so the MFA challenge is a 6-digit code computed from a published TOTP secret, not a QR-scan ceremony |
+| `nurse.adams` | nurse | demo-001 only | password + TOTP (pre-enrolled) | Exercises the RBAC refusal path: same UI, but `/chat` 403s for demo-002–005. Also has a smaller tool set (no problem list) so the agent's plan-node fan-out is observably different |
+
+Passwords and TOTP secrets are published in [README.md](./README.md)
+"Grader credentials" section because the data is synthetic; this
+publication pattern is itself documented as a §164.312(d) carve-out.
+End-to-end pinned by [`eval/test_published_grader_credentials.py`](./eval/test_published_grader_credentials.py)
+and [`eval/test_bypass_mfa.py`](./eval/test_bypass_mfa.py) so a typo
+in the README fails CI rather than reaching the deployment.
+
+### What this enables for the use cases
+
+- **UC-1 → UC-7** (Dr. Chen persona) run cleanly under `dr.pavan` for daily operator use, or under `grader.demo` for an external reviewer who follows the README's MFA flow.
+- **UC-5 (Authorization Boundary)** is concretely demonstrable on the live URL by signing in as `nurse.adams` and trying to `/chat` about `demo-003` — the 403 + audit row is the visible artifact the case study calls for.
+
+---
+
 ## Out of Scope (Capabilities Not Justified)
 
 These are tempting but do not yet have a use case:
