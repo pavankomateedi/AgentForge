@@ -41,6 +41,9 @@ target-version = "py311"
 # imports legitimately come after env-setup code.
 "eval/conftest.py" = ["E402"]
 "eval/replay/record.py" = ["E402"]
+# Audit event names like PASSWORD_RESET_REQUESTED are class-level
+# string constants, not credentials — silence S105/S106 false positives.
+"agent/audit.py" = ["S105", "S106"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

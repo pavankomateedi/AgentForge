@@ -1,0 +1,54 @@
+# Dependabot keeps Python, npm, and GitHub Actions versions current.
+# Weekly cadence is the sweet spot for a v0: enough signal to catch
+# CVEs, not enough churn to drown the inbox. Bumps land as PRs that
+# must pass the full CI suite (test + 5 security scans + UI build)
+# before they can merge.
+
+version: 2
+
+updates:
+  # Python runtime + dev deps. Both pyproject.toml and requirements.txt
+  # are tracked because the latter is the deploy artifact.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Chicago"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "python"
+    groups:
+      python-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # React + Vite + TypeScript stack.
+  - package-ecosystem: "npm"
+    directory: "/ui"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Chicago"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "javascript"
+    groups:
+      ui-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  # CI workflow action versions (actions/checkout, setup-python, etc.).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Chicago"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "ci"

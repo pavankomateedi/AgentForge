@@ -139,4 +139,6 @@ def _hash_patient_id(patient_id: str) -> str:
     don't need cryptographic strength — just don't put a raw demo id in
     Langfuse if it happened to ever be a real one. The audit log gets
     the real id."""
-    return hashlib.sha1(patient_id.encode("utf-8")).hexdigest()[:12]
+    return hashlib.sha1(  # noqa: S324 — non-security use; flagged usedforsecurity=False
+        patient_id.encode("utf-8"), usedforsecurity=False
+    ).hexdigest()[:12]

@@ -18,7 +18,7 @@
 
 **Deployed:** https://web-production-6259a.up.railway.app
 **Demo video:** https://www.loom.com/share/926a88546fec44f4862ff3109d638f5c
-**Documents:** [AUDIT.md](./AUDIT.md) · [USERS.md](./USERS.md) · [ARCHITECTURE.md](./ARCHITECTURE.md)
+**Documents:** [AUDIT.md](./AUDIT.md) · [USERS.md](./USERS.md) · [ARCHITECTURE.md](./ARCHITECTURE.md) · [HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md) · [terraform/](./terraform/)
 
 ---
 
@@ -223,6 +223,56 @@ Every architectural claim has a regression test. The most load-bearing ones:
 | MFA is mandatory before any access to `/chat` | `agent/auth.py` `login` + `mfa_*` | `eval/test_auth_mfa.py` + `eval/test_chat_protected.py` |
 | Password-reset tokens are single-use, expire in 1 hour, leak nothing about whether an account exists | `agent/auth.py` `password_reset_*` | `eval/test_auth_password_reset.py` |
 | Every authenticated request is audit-logged with user_id | `agent/audit.py` | `eval/test_auth_login.py`, `eval/test_chat_protected.py` |
+
+---
+
+## Deploy posture
+
+The deployment story has three layers, each labeled with what it
+*can* legally hold:
+
+| Layer | Where | Data class | Status |
+|---|---|---|---|
+| **v0 demo** | Railway (current) | Synthetic only — **no real PHI** | ✅ Live |
+| **v0+ staging** | Railway, separate service on the `staging` branch | Synthetic only | Documented, not provisioned |
+| **v1 production** | AWS HIPAA-eligible — see [`terraform/`](./terraform/) | Real PHI (after BAAs) | Blueprint only — `terraform plan`-able, not applied |
+
+The v0 → v1 path and every gap that has to close before real PHI can
+land are enumerated in [HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md).
+
+### CI/CD pipeline
+
+Every push and PR to `main` or `staging` runs an 8-job pipeline in
+parallel and converges on a single `ci-success` check that Railway
+uses as a deploy gate (red CI = blocked deploy).
+
+| Job | Purpose |
+|---|---|
+| `test` | pytest — unit + integration + replay (existing) |
+| `ruff-security` | Ruff `S` rules — Bandit-derived security lint |
+| `bandit` | Standalone Python SAST |
+| `pip-audit` | Known-CVE scan of Python dependencies |
+| `npm-audit` | Known-CVE scan of UI production dependencies |
+| `gitleaks` | Scan history for committed secrets |
+| `ui-build` | Verify the React + Vite + TypeScript bundle still compiles |
+| `ci-success` | Meta-job that fails if any of the above failed; the deploy gate |
+
+A separate workflow (`.github/workflows/smoke-prod.yml`) runs
+post-deploy: it hits `/health` and an authenticated `/chat` (using a
+TOTP secret stored in repo secrets) every 30 minutes during business
+hours, after every successful CI on `main`/`staging`, and on demand.
+
+Dependabot opens grouped weekly PRs for Python, npm, and GitHub
+Actions versions, all of which must clear the same 8-job gate.
+
+### Staging environment (Railway)
+
+Provisioning steps:
+
+1. Create a new Railway service from the same repo, configured to deploy the `staging` branch.
+2. Copy production env vars into the staging service's Variables tab; rotate `SESSION_SECRET` to a fresh value.
+3. In the GitHub repo, create an Environment named `staging` with the smoke-test secrets (`SMOKE_BASE_URL` etc.) pointed at the staging URL.
+4. Open PRs against `staging` first; merge to `main` only after the staging smoke goes green.
 
 ---
 

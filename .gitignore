@@ -42,3 +42,15 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Terraform — never commit local state, plan output, or filled-in tfvars.
+# The blueprint files (*.tf) and the example tfvars ARE committed.
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/*.tfvars
+!terraform/*.tfvars.example
+terraform/*.tfplan
+terraform/crash.log
+terraform/crash.*.log
