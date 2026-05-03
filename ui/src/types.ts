@@ -68,6 +68,21 @@ export type ChatTurn = {
 
 export const MAX_CLIENT_HISTORY = 8
 
+// One render-able turn in the visible transcript. Combines the user's
+// question with the agent's response (or in-progress / error state)
+// so each turn can render as a self-contained block — question
+// bubble + briefing + verification + rules — and the prior turns
+// stay on screen above the form. Persisted to localStorage so a
+// page refresh doesn't lose the conversation.
+export type Turn = {
+  id: string  // monotonic; React key + ordering
+  question: string
+  result: ChatResponse | null  // null while in flight
+  elapsed: number | null  // seconds
+  error: string | null
+  loading: boolean
+}
+
 export type Patient = {
   id: string
   label: string

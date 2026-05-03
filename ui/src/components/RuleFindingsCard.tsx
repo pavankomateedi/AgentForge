@@ -18,7 +18,7 @@ export function RuleFindingsCard({ loading, result }: Props) {
     <section className="card findings-card">
       <div className="card-header">
         <h3 className="card-title compact">
-          Rule findings
+          Test findings
           {findings.length > 0 && (
             <span className="count">({findings.length})</span>
           )}
@@ -27,15 +27,15 @@ export function RuleFindingsCard({ loading, result }: Props) {
       <div className="card-body">
         {!result && !loading && (
           <p className="placeholder">
-            Clinical rules (A1c, LDL, dosage, interactions) run on retrieval.
+            Clinical tests (A1c, LDL, dosage, interactions) run on retrieval.
           </p>
         )}
 
-        {loading && <p className="placeholder">Evaluating rules…</p>}
+        {loading && <p className="placeholder">Evaluating tests…</p>}
 
         {!loading && result && findings.length === 0 && (
           <p className="placeholder">
-            No rule findings — patient is within thresholds.
+            No test findings — patient is within thresholds.
           </p>
         )}
 

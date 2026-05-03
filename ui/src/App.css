@@ -84,16 +84,80 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
+  /* Scroll the transcript inside the panel rather than pushing the
+     whole page down. Form stays anchored on the left; transcript
+     grows downward; oldest turn at the top, newest at the bottom. */
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+  padding-right: 4px; /* gutter for the scrollbar */
 }
 
-/* Three small cards in a row under the briefing — verification, rule
-   findings, trace. Wraps on narrow widths so each card keeps its
-   minimum readable width. */
-.workspace-meta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px;
+/* The transcript itself — an ordered list of (question, response)
+   pairs. Each <li> is one turn. */
+.conversation-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
 }
+
+.conversation-list > li {
+  display: block;
+}
+
+.conversation-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* One conversation turn: user bubble + briefing + meta-cards row. */
+.conversation-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* The clinician's question — visually distinct from the agent's
+   response, anchored top-right of the turn. */
+.user-bubble {
+  align-self: flex-end;
+  max-width: 80%;
+  background: var(--bg-subtle, #f1f5f9);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 10px 14px;
+}
+
+.user-bubble-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 4px;
+}
+
+.user-bubble-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+}
+
+/* The verification and trace cards were removed from the per-turn
+   UX (operator signal, not clinician signal). The clinician's
+   verification cue is the green Verified badge in the BriefingCard
+   header; rule findings render as a single card below the briefing.
+   Verifier counts + per-node timings + Langfuse links are still
+   recorded server-side for audit / ops. */
 
 .page-header {
   margin-bottom: 28px;
@@ -462,9 +526,7 @@ button.primary:disabled {
 /* Compact card spacing for the workspace (overrides .card defaults). */
 .workspace .card,
 .briefing-card,
-.verification-card,
 .findings-card,
-.trace-card,
 .workspace-form .card {
   padding: 16px 18px;
   animation: fade-in 200ms ease-out both;
@@ -532,41 +594,6 @@ button.primary:disabled {
   font-size: 13px;
   color: var(--text-muted);
   line-height: 1.5;
-}
-
-/* Verification card — key/value list. */
-.kv-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.kv-list li {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  font-size: 13px;
-}
-
-.kv-key {
-  color: var(--text-muted);
-}
-
-.kv-val {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-.kv-val.ok-text {
-  color: var(--success-text);
-}
-
-.kv-val.warn-text {
-  color: var(--warn-text);
 }
 
 /* Rule findings card — color-coded per severity. */
@@ -643,69 +670,6 @@ button.primary:disabled {
   font-size: 13px;
   line-height: 1.4;
   color: var(--text-primary);
-}
-
-/* Trace card — per-node timing bars. */
-.timing-list {
-  list-style: none;
-  margin: 0 0 10px;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.timing-row {
-  display: grid;
-  grid-template-columns: 80px 1fr 50px;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.timing-label {
-  color: var(--text-muted);
-}
-
-.timing-bar-wrap {
-  height: 6px;
-  background: #f1f5f9;
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.timing-bar {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  border-radius: 3px;
-  transition: width 200ms ease-out;
-}
-
-.timing-ms {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-secondary);
-}
-
-.trace-id {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-.trace-link {
-  display: inline-block;
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 500;
-}
-
-.trace-link:hover {
-  text-decoration: underline;
 }
 
 /* Login page */
