@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react'
 import { ChatForm } from './components/ChatForm'
-import { BriefingCard } from './components/BriefingCard'
-import { VerificationCard } from './components/VerificationCard'
-import { RuleFindingsCard } from './components/RuleFindingsCard'
-import { TraceCard } from './components/TraceCard'
+import { ConversationCard } from './components/ConversationCard'
 import { Login } from './components/Login'
 import { MfaSetup } from './components/MfaSetup'
 import { MfaChallenge } from './components/MfaChallenge'
@@ -11,8 +8,13 @@ import { PasswordResetRequest } from './components/PasswordResetRequest'
 import { PasswordResetConfirm } from './components/PasswordResetConfirm'
 import { Header } from './components/Header'
 import { api } from './api'
-import type { AuthStatus, AuthUser, ChatResponse, ChatTurn } from './types'
+import type { AuthStatus, AuthUser, ChatTurn, Turn } from './types'
 import { MAX_CLIENT_HISTORY } from './types'
+import {
+  clearConversation as clearStoredConversation,
+  loadConversation,
+  saveConversation,
+} from './conversationStore'
 import './App.css'
 
 function getResetTokenFromUrl(): string | null {
@@ -28,6 +30,20 @@ function clearResetTokenFromUrl(): void {
   window.history.replaceState({}, '', url.toString())
 }
 
+// Build the history payload the server expects from the visible
+// turns. Skips the in-flight turn (it has no result yet) and skips
+// turns whose result was an error. Caps to the last MAX_CLIENT_HISTORY.
+function deriveHistoryFromTurns(turns: Turn[]): ChatTurn[] {
+  const flat: ChatTurn[] = []
+  for (const t of turns) {
+    if (t.loading) continue
+    if (!t.result) continue
+    flat.push({ role: 'user', content: t.question })
+    flat.push({ role: 'assistant', content: t.result.response })
+  }
+  return flat.slice(-MAX_CLIENT_HISTORY)
+}
+
 function App() {
   // ---- Auth state ----
   const [authStatus, setAuthStatus] = useState<AuthStatus>('loading')
@@ -39,16 +55,11 @@ function App() {
   // ---- Chat state ----
   const [patientId, setPatientId] = useState('demo-001')
   const [message, setMessage] = useState('Brief me on this patient.')
-  const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<ChatResponse | null>(null)
-  const [elapsed, setElapsed] = useState<number | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [showResult, setShowResult] = useState(false)
-  // Conversation history for follow-up coherence (UC-2 "what changed
-  // since last visit?", UC-3 "is this trend concerning?"). Kept on
-  // the client and resent on each /chat call. Clears when the patient
-  // changes — different patient = different conversation.
-  const [history, setHistory] = useState<ChatTurn[]>([])
+  // Visible transcript. Each entry is one user-question / agent-
+  // response pair. The agent's reasoning over prior turns is what the
+  // server reads via ChatRequest.history; the array here is what the
+  // user sees on screen, so they can read the conversation back.
+  const [turns, setTurns] = useState<Turn[]>([])
 
   // On mount: check for a reset_token in the URL first, otherwise check session.
   useEffect(() => {
@@ -67,6 +78,14 @@ function App() {
       if (res.ok) {
         setUser(res.data)
         setAuthStatus('authenticated')
+        // Restore any persisted conversation for the current patient.
+        // Restoration is best-effort and silent; nothing to surface
+        // if the saved data is stale or for a different patient.
+        const saved = loadConversation()
+        if (saved && saved.patientId) {
+          setPatientId(saved.patientId)
+          setTurns(saved.turns)
+        }
       } else {
         setAuthStatus('unauthenticated')
       }
@@ -76,15 +95,21 @@ function App() {
     }
   }, [])
 
+  // Persist the visible conversation on every change so a page
+  // refresh during the demo doesn't lose context.
+  useEffect(() => {
+    if (authStatus !== 'authenticated') return
+    saveConversation(patientId, turns)
+  }, [authStatus, patientId, turns])
+
   function onAuthenticated(u: AuthUser) {
     setUser(u)
     setAuthStatus('authenticated')
     setSessionExpired(false)
-    // Reset any prior chat state in case this is a re-auth.
-    setShowResult(false)
-    setResult(null)
-    setError(null)
-    setHistory([])
+    // Reset chat state on (re-)auth so a stale prior session doesn't
+    // bleed into a fresh login.
+    setTurns([])
+    clearStoredConversation()
   }
 
   async function onLogout() {
@@ -94,68 +119,84 @@ function App() {
     setUser(null)
     setAuthStatus('unauthenticated')
     setSessionExpired(false)
-    setShowResult(false)
-    setResult(null)
-    setError(null)
-    setHistory([])
+    setTurns([])
+    clearStoredConversation()
   }
 
-  // Patient changed → flush history. Carrying turns about a different
-  // patient into a new conversation would confuse the agent and is
-  // exactly the kind of cross-patient leakage the patient-subject
-  // lock exists to prevent.
+  // Patient changed → flush the visible conversation. Different
+  // patient = different conversation; the patient-subject lock on
+  // the server would refuse cross-patient memory anyway.
   function changePatient(next: string) {
     if (next === patientId) return
     setPatientId(next)
-    setHistory([])
-    setShowResult(false)
-    setResult(null)
-    setError(null)
+    setTurns([])
+    clearStoredConversation()
   }
 
   function clearConversation() {
-    setHistory([])
-    setShowResult(false)
-    setResult(null)
-    setError(null)
+    setTurns([])
+    clearStoredConversation()
   }
 
   async function ask() {
-    if (!message.trim()) return
-    setLoading(true)
-    setShowResult(true)
-    setResult(null)
-    setError(null)
-    setElapsed(null)
+    const askedMessage = message.trim()
+    if (!askedMessage) return
 
-    const askedMessage = message
+    const turnId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const inFlightTurn: Turn = {
+      id: turnId,
+      question: askedMessage,
+      result: null,
+      elapsed: null,
+      error: null,
+      loading: true,
+    }
+
+    // Snapshot the history BEFORE we append the in-flight turn, so
+    // we don't accidentally send the in-flight question as both the
+    // current message AND a history entry.
+    const historyPayload = deriveHistoryFromTurns(turns)
+
+    setTurns((prev) => [...prev, inFlightTurn])
+
     const t0 = performance.now()
-    const res = await api.chat(patientId, askedMessage, history)
-    setElapsed((performance.now() - t0) / 1000)
-    setLoading(false)
+    const res = await api.chat(patientId, askedMessage, historyPayload)
+    const elapsed = (performance.now() - t0) / 1000
 
     if (!res.ok) {
-      // Session expired or revoked mid-use — bounce to login with a notice.
+      // Session expired or revoked mid-use — bounce to login.
       if (res.status === 401) {
         setUser(null)
         setSessionExpired(true)
         setAuthStatus('unauthenticated')
         return
       }
-      setError(res.message)
+      setTurns((prev) =>
+        prev.map((t) =>
+          t.id === turnId
+            ? { ...t, loading: false, error: res.message, elapsed }
+            : t,
+        ),
+      )
       return
     }
-    setResult(res.data)
-    // Append this turn to history, keeping only the tail. Stripping
-    // trailing whitespace keeps the cost-vs-context tradeoff sane.
-    setHistory((prev) => {
-      const next: ChatTurn[] = [
-        ...prev,
-        { role: 'user', content: askedMessage.trim() },
-        { role: 'assistant', content: res.data.response.trim() },
-      ]
-      return next.slice(-MAX_CLIENT_HISTORY)
-    })
+
+    setTurns((prev) =>
+      prev.map((t) =>
+        t.id === turnId
+          ? { ...t, loading: false, result: res.data, elapsed }
+          : t,
+      ),
+    )
+  }
+
+  function retryTurn(turnId: string) {
+    const turn = turns.find((t) => t.id === turnId)
+    if (!turn) return
+    // Drop the failed turn, restore its question into the form, ask again.
+    setMessage(turn.question)
+    setTurns((prev) => prev.filter((t) => t.id !== turnId))
+    void ask()
   }
 
   if (authStatus === 'loading') {
@@ -256,11 +297,9 @@ function App() {
     )
   }
 
-  // Once a result is in, the empty placeholders in the right-column
-  // cards swap to populated content. Loading state is per-card so the
-  // briefing card can show a thinking indicator while the meta cards
-  // show "checking…" placeholders. Error in the briefing card; the
-  // meta cards quietly stay placeholder.
+  const anyLoading = turns.some((t) => t.loading)
+  const completedTurns = turns.filter((t) => t.result).length
+
   return (
     <div className="app workspace">
       <Header user={user} onLogout={onLogout} loggingOut={loggingOut} />
@@ -272,38 +311,35 @@ function App() {
             setPatientId={changePatient}
             message={message}
             setMessage={setMessage}
-            loading={loading}
+            loading={anyLoading}
             onSubmit={ask}
-            historyTurns={history.length / 2}
+            historyTurns={completedTurns}
             onClearConversation={
-              history.length > 0 ? clearConversation : undefined
+              turns.length > 0 ? clearConversation : undefined
             }
           />
         </aside>
 
         <section className="workspace-result">
-          <BriefingCard
-            loading={loading}
-            result={showResult ? result : null}
-            elapsed={elapsed}
-            error={showResult ? error : null}
-            onRetry={!loading && showResult && error ? ask : undefined}
-          />
-
-          <div className="workspace-meta">
-            <VerificationCard
-              loading={loading}
-              result={showResult ? result : null}
-            />
-            <RuleFindingsCard
-              loading={loading}
-              result={showResult ? result : null}
-            />
-            <TraceCard
-              loading={loading}
-              result={showResult ? result : null}
-            />
-          </div>
+          {turns.length === 0 ? (
+            <div className="conversation-empty">
+              <p className="placeholder">
+                Pick a patient and ask a question to begin. The conversation
+                stays on screen so you can follow up.
+              </p>
+            </div>
+          ) : (
+            <ol className="conversation-list">
+              {turns.map((t) => (
+                <li key={t.id}>
+                  <ConversationCard
+                    turn={t}
+                    onRetry={() => retryTurn(t.id)}
+                  />
+                </li>
+              ))}
+            </ol>
+          )}
         </section>
       </main>
     </div>
