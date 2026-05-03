@@ -4,23 +4,34 @@ Five patients, each engineered to exercise a different agent pathway:
 
   demo-001 — Margaret Hayes (64F, T2DM + HTN + HLD). The UC-1 demo gold.
              Recent A1c 7.4% above goal but not uncontrolled — fires
-             the A1C_ABOVE_GOAL warning rule.
-  demo-002 — James Whitaker (70M, CHF). Sparse data (no recent labs).
-             Tests the "data is silent" handling path; verifier passes
-             vacuously, no rules fire.
+             the A1C_ABOVE_GOAL warning rule. Three encounters showing
+             A1c drifting 6.7 → 6.9 → 7.4; the trend powers UC-6
+             ("is this trend concerning?").
+  demo-002 — James Whitaker (70M, CHF). Sparse data (no recent labs;
+             one stale 2024 encounter). Tests the "data is silent"
+             handling path; verifier passes vacuously, no rules fire.
   demo-003 — Robert Mitchell (70M, uncontrolled T2DM + CKD3 + HTN +
              HLD). Critical-findings demo. A1c 10.5%, creatinine 1.8,
              on metformin — fires four rules (A1C_UNCONTROLLED,
              CREATININE_ELEVATED, LDL_ABOVE_TARGET,
-             METFORMIN_RENAL_CONTRAINDICATION). Demonstrates the rule
-             engine catching a dangerous med-condition combination.
+             METFORMIN_RENAL_CONTRAINDICATION). Trajectory across three
+             encounters shows worsening DM + renal function — the
+             clearest "what changed" / "is this concerning" pair.
   demo-004 — Linda Chen (55F, HTN + chronic back pain). Drug-
              interaction demo. On lisinopril + chronic NSAID
              (ibuprofen) — fires LISINOPRIL_NSAID interaction rule.
+             Mid-2025 encounter records the NSAID start, anchoring
+             "what changed since last visit?" with a specific event.
   demo-005 — Sarah Martinez (45F, well-controlled HTN). Stable-patient
              baseline. Single med (low-dose lisinopril), all labs
              normal. No rules fire — the "nothing changed since last
-             visit" headline case.
+             visit" headline case. Two encounters a year apart confirm
+             stability over time.
+
+Each patient has a `recent_encounters` list (newest-first) that the
+get_recent_encounters tool returns. Encounter records carry source_id,
+date, type, provider, chief_complaint, and assessment_summary. The
+verifier walks the same source_id field for citation grounding.
 """
 
 from __future__ import annotations
@@ -113,6 +124,44 @@ DEMO_PATIENTS: dict[str, dict] = {
                 "flag": "normal",
             },
         ],
+        # Newest first. Three encounters show the A1c drifting from
+        # 6.7 → 6.9 → 7.4, perfect for UC-6 "is this trend concerning?"
+        # follow-ups paired with the lab tool.
+        "recent_encounters": [
+            {
+                "source_id": "enc-001-2026-03",
+                "date": "2026-03-15",
+                "type": "office visit",
+                "provider": "Dr. Chen",
+                "chief_complaint": "Diabetes follow-up",
+                "assessment_summary": (
+                    "T2DM with A1c 7.4 (up from 6.9 in Sept). "
+                    "Reinforced dietary adherence and exercise. "
+                    "Continue metformin, recheck A1c in 3 months."
+                ),
+            },
+            {
+                "source_id": "enc-001-2025-09",
+                "date": "2025-09-12",
+                "type": "office visit",
+                "provider": "Dr. Chen",
+                "chief_complaint": "Annual physical",
+                "assessment_summary": (
+                    "Diabetes well-controlled at A1c 6.9. BP and lipids at goal. "
+                    "Continue current regimen."
+                ),
+            },
+            {
+                "source_id": "enc-001-2025-03",
+                "date": "2025-03-08",
+                "type": "office visit",
+                "provider": "Dr. Chen",
+                "chief_complaint": "Diabetes follow-up",
+                "assessment_summary": (
+                    "T2DM controlled at A1c 6.7. Statin tolerated. No new concerns."
+                ),
+            },
+        ],
     },
     "demo-002": {
         "patient": {
@@ -143,6 +192,22 @@ DEMO_PATIENTS: dict[str, dict] = {
             },
         ],
         "recent_labs": [],
+        # Sparse-data path: a single old encounter, no labs. Tests the
+        # "data is silent" handling — the agent must say so without
+        # fabricating recency.
+        "recent_encounters": [
+            {
+                "source_id": "enc-002-2024-08",
+                "date": "2024-08-22",
+                "type": "office visit",
+                "provider": "Dr. Patel",
+                "chief_complaint": "CHF follow-up",
+                "assessment_summary": (
+                    "Diastolic CHF stable on furosemide. No new symptoms. "
+                    "Patient declined lab work; recheck deferred."
+                ),
+            },
+        ],
     },
     "demo-003": {
         "patient": {
@@ -238,6 +303,49 @@ DEMO_PATIENTS: dict[str, dict] = {
                 "flag": "high",
             },
         ],
+        # Trajectory: A1c 8.5 → 9.2 → 10.5 and creatinine 1.3 → 1.5 → 1.8
+        # over a year. Demonstrates the trend question with a clear
+        # worsening signature. Most recent encounter calls out the
+        # metformin-renal contraindication, mirrored by the rule engine.
+        "recent_encounters": [
+            {
+                "source_id": "enc-003-2026-04",
+                "date": "2026-04-12",
+                "type": "office visit",
+                "provider": "Dr. Patel",
+                "chief_complaint": "Diabetes uncontrolled, fatigue",
+                "assessment_summary": (
+                    "Diabetes worsening: A1c 10.5 (was 9.2). "
+                    "Renal function declining: creatinine 1.8 (was 1.5). "
+                    "Discussed metformin contraindication with eGFR <45; "
+                    "transitioning off metformin, starting basal insulin. "
+                    "Nephrology referral placed."
+                ),
+            },
+            {
+                "source_id": "enc-003-2025-10",
+                "date": "2025-10-04",
+                "type": "office visit",
+                "provider": "Dr. Patel",
+                "chief_complaint": "Diabetes follow-up",
+                "assessment_summary": (
+                    "A1c 9.2 (was 8.5). Creatinine 1.5 — early stage CKD "
+                    "noted. Continue metformin for now, increase to twice "
+                    "daily, recheck in 6 months."
+                ),
+            },
+            {
+                "source_id": "enc-003-2025-04",
+                "date": "2025-04-18",
+                "type": "office visit",
+                "provider": "Dr. Patel",
+                "chief_complaint": "Annual physical",
+                "assessment_summary": (
+                    "A1c 8.5, suboptimal. Creatinine 1.3, borderline. "
+                    "Counseled on diet; medication unchanged."
+                ),
+            },
+        ],
     },
     "demo-004": {
         "patient": {
@@ -302,6 +410,46 @@ DEMO_PATIENTS: dict[str, dict] = {
                 "flag": "normal",
             },
         ],
+        # Mid-2025 encounter is when the NSAID was prescribed — gives
+        # the agent a "what changed since last visit" answer with a
+        # specific medication-onset event and an interaction that the
+        # rule engine flags concurrently.
+        "recent_encounters": [
+            {
+                "source_id": "enc-004-2026-04",
+                "date": "2026-04-08",
+                "type": "office visit",
+                "provider": "Dr. Chen",
+                "chief_complaint": "BP check, low back pain",
+                "assessment_summary": (
+                    "BP well-controlled on lisinopril. Back pain ongoing, "
+                    "managed with PRN ibuprofen. Reviewed NSAID-ACEi "
+                    "interaction risk; patient prefers to continue and "
+                    "monitor renal function quarterly."
+                ),
+            },
+            {
+                "source_id": "enc-004-2025-08",
+                "date": "2025-08-15",
+                "type": "office visit",
+                "provider": "Dr. Chen",
+                "chief_complaint": "Persistent low back pain",
+                "assessment_summary": (
+                    "Mechanical low back pain, no red flags. Started PRN "
+                    "ibuprofen 400mg q6h. Counseled on physical therapy."
+                ),
+            },
+            {
+                "source_id": "enc-004-2025-02",
+                "date": "2025-02-22",
+                "type": "office visit",
+                "provider": "Dr. Chen",
+                "chief_complaint": "Annual physical",
+                "assessment_summary": (
+                    "Hypertension well-controlled. No new concerns."
+                ),
+            },
+        ],
     },
     "demo-005": {
         "patient": {
@@ -349,6 +497,32 @@ DEMO_PATIENTS: dict[str, dict] = {
                 "reference_range": "<100",
                 "date": "2026-03-22",
                 "flag": "normal",
+            },
+        ],
+        # Two clean encounters a year apart — the "stable patient,
+        # nothing changed" headline answer for UC-2.
+        "recent_encounters": [
+            {
+                "source_id": "enc-005-2026-03",
+                "date": "2026-03-22",
+                "type": "office visit",
+                "provider": "Dr. Chen",
+                "chief_complaint": "Annual physical",
+                "assessment_summary": (
+                    "BP 122/78, well-controlled on lisinopril. Labs at goal. "
+                    "No new concerns. Continue current regimen."
+                ),
+            },
+            {
+                "source_id": "enc-005-2025-04",
+                "date": "2025-04-15",
+                "type": "office visit",
+                "provider": "Dr. Chen",
+                "chief_complaint": "Annual physical",
+                "assessment_summary": (
+                    "Hypertension well-controlled. All labs normal. "
+                    "No medication changes."
+                ),
             },
         ],
     },

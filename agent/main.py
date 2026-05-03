@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 import anthropic
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -18,6 +20,14 @@ from agent.config import Config, get_config
 from agent.db import connect, init_db
 from agent.orchestrator import run_turn
 from agent.tools import TOOLS
+
+
+# Cap on history forwarded to the LLM. Eight turns = four user/
+# assistant pairs, plenty for follow-ups like "what changed since last
+# visit?" without inflating token cost or context window past Plan +
+# Reason headroom. Server enforces; clients can send more but only the
+# tail wins.
+MAX_HISTORY_TURNS = 8
 
 
 log = logging.getLogger(__name__)
@@ -72,6 +82,141 @@ def _bootstrap_default_user_if_empty(config: Config) -> None:
     )
 
 
+def _bootstrap_extra_users(config: Config) -> None:
+    """Seed any users listed in EXTRA_USERS_JSON. Idempotent: existing
+    usernames are skipped, existing patient assignments are no-ops.
+
+    Survives Railway-style ephemeral filesystems — every cold start
+    re-seeds whatever the env var declares, so demo accounts (nurse,
+    resident, second physician) persist across redeploys without manual
+    CLI intervention.
+
+    Schema (JSON list):
+        [
+          {
+            "username":     "nurse.adams",
+            "email":        "nurse.adams@example.com",
+            "password":     "NurseDemo!2026",
+            "role":         "nurse",
+            "patients":     ["demo-001"],
+            "totp_secret":  "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"
+          }
+        ]
+
+    Optional `totp_secret` pre-enrolls MFA with the given base32 secret
+    so a known TOTP code can be generated externally — the only safe
+    way to hand graders a working credential without per-grader
+    enrollment ceremony. The secret MUST be valid base32; an invalid
+    secret leaves the account un-enrolled (forces in-app enrollment on
+    first login). This pattern is acceptable for synthetic-data demos
+    only — see HIPAA_COMPLIANCE.md.
+
+    Validation: missing keys, unknown roles, malformed JSON → log and
+    skip the offending entry. Other entries still process. We never
+    crash the lifespan over a bad env var."""
+    if not config.extra_users_json:
+        return
+    try:
+        entries = json.loads(config.extra_users_json)
+    except json.JSONDecodeError as e:
+        log.error("EXTRA_USERS_JSON is not valid JSON; skipping. Error: %s", e)
+        return
+    if not isinstance(entries, list):
+        log.error("EXTRA_USERS_JSON must be a JSON list; got %s. Skipping.", type(entries).__name__)
+        return
+
+    for entry in entries:
+        if not isinstance(entry, dict):
+            log.warning("EXTRA_USERS_JSON entry not an object; skipping: %r", entry)
+            continue
+        username = entry.get("username")
+        email = entry.get("email")
+        password = entry.get("password")
+        role = entry.get("role", "physician")
+        patients = entry.get("patients", []) or []
+
+        if not (username and email and password):
+            log.warning(
+                "EXTRA_USERS_JSON entry missing username/email/password; skipping: %r",
+                entry,
+            )
+            continue
+        if not rbac.is_valid_role(role):
+            log.warning(
+                "EXTRA_USERS_JSON entry has unknown role %r; skipping: %s",
+                role, username,
+            )
+            continue
+
+        existing = auth.get_user_by_username(config.database_url, username)
+        if existing is None:
+            user = auth.create_user(
+                config.database_url,
+                username=username,
+                email=email,
+                password=password,
+                role=role,
+            )
+            log.info(
+                "bootstrap: extra user %r created (id=%d, role=%s)",
+                user.username, user.id, user.role,
+            )
+            user_id = user.id
+        else:
+            log.info(
+                "bootstrap: extra user %r already exists (id=%d); ensuring assignments",
+                existing.username, existing.id,
+            )
+            user_id = existing.id
+
+        for pid in patients:
+            if not isinstance(pid, str):
+                log.warning(
+                    "EXTRA_USERS_JSON: non-string patient id for %r; skipping: %r",
+                    username, pid,
+                )
+                continue
+            rbac.assign_patient(config.database_url, user_id=user_id, patient_id=pid)
+        if patients:
+            log.info(
+                "bootstrap: extra user %r assigned to %d patient(s): %s",
+                username, len(patients), patients,
+            )
+
+        totp_secret = entry.get("totp_secret")
+        if totp_secret:
+            _pre_enroll_totp(config.database_url, user_id, username, totp_secret)
+
+
+def _pre_enroll_totp(
+    database_url: str, user_id: int, username: str, secret: str
+) -> None:
+    """Pre-enroll a user's TOTP with a known base32 secret. Idempotent —
+    running twice with the same secret is a no-op. Invalid base32 logs
+    and skips (the user simply isn't pre-enrolled and will go through
+    the normal enrollment flow on first login)."""
+    import pyotp
+
+    if not isinstance(secret, str) or not secret.strip():
+        log.warning(
+            "EXTRA_USERS_JSON: totp_secret for %r is empty; skipping pre-enroll",
+            username,
+        )
+        return
+    try:
+        # pyotp accepts the secret silently and validates lazily on .now().
+        pyotp.TOTP(secret).now()
+    except Exception as e:
+        log.warning(
+            "EXTRA_USERS_JSON: totp_secret for %r is not valid base32 "
+            "(%s); skipping pre-enroll",
+            username, e,
+        )
+        return
+    auth._save_totp_secret(database_url, user_id, secret)
+    log.info("bootstrap: pre-enrolled TOTP for %r", username)
+
+
 def _backfill_assignments_for_legacy_users(config: Config) -> None:
     """Any existing physician with zero patient assignments gets default
     assignments to every shipped demo patient. Keeps pre-RBAC users
@@ -112,6 +257,7 @@ async def lifespan(app: FastAPI):
     )
     init_db(_config.database_url)
     _bootstrap_default_user_if_empty(_config)
+    _bootstrap_extra_users(_config)
     _backfill_assignments_for_legacy_users(_config)
     _client = anthropic.AsyncAnthropic(api_key=_config.anthropic_api_key)
     observability.init(
@@ -151,12 +297,37 @@ app.add_middleware(
 app.include_router(auth.router)
 
 
+class ChatTurn(BaseModel):
+    """One prior exchange the client wants the agent to consider for
+    context. The role mirrors Anthropic's API roles. Content is plain
+    text — `<source/>` tags from prior assistant turns are kept (the
+    Reason model uses them for follow-up coherence) but the verifier
+    still only validates the CURRENT turn's output against the current
+    turn's retrieval bundle."""
+
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=8000)
+
+
 class ChatRequest(BaseModel):
     patient_id: str = Field(
         ..., description="Patient identifier locked to this conversation"
     )
     message: str = Field(
         ..., description="The clinician's natural-language question"
+    )
+    # Optional prior turns for follow-up coherence. The server caps to
+    # MAX_HISTORY_TURNS regardless of what the client sends, both to
+    # bound LLM cost and to defend against a malicious client trying
+    # to blow up the context window. Default empty preserves single-
+    # turn behavior.
+    history: list[ChatTurn] = Field(
+        default_factory=list,
+        max_length=64,
+        description=(
+            "Prior turns in this conversation. Server keeps the last "
+            f"{MAX_HISTORY_TURNS} entries."
+        ),
     )
 
 
@@ -244,6 +415,16 @@ async def chat(
     # ---- Role-aware tool filtering ----
     available_tools = rbac.filter_tools_for_role(current_user.role, TOOLS)
 
+    # ---- Conversation history (capped) ----
+    # Trim BEFORE handing to the orchestrator so an oversized client
+    # request can't accidentally inflate token cost or trip the per-
+    # call context limit. We keep the tail because the most recent
+    # turns disambiguate the current question best.
+    history_payload = [
+        {"role": h.role, "content": h.content}
+        for h in req.history[-MAX_HISTORY_TURNS:]
+    ]
+
     result = await run_turn(
         client=_client,
         model=_config.model,
@@ -252,6 +433,7 @@ async def chat(
         user_id=str(current_user.id),
         user_role=current_user.role,
         available_tools=available_tools,
+        history=history_payload,
     )
 
     # ---- Resident watermark ----
@@ -290,6 +472,7 @@ async def chat(
         details={
             "patient_id": req.patient_id,
             "message_len": len(req.message),
+            "history_len": len(history_payload),
             "trace_id": result.trace.trace_id,
             "verified": result.verified,
             "regenerated": result.trace.regenerated,

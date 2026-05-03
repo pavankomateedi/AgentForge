@@ -3,11 +3,12 @@
 
 Three roles modeled in v0:
 
-  - physician — full clinical decision support; sees all four FHIR
-    tools (summary, problems, meds, labs).
-  - nurse — medication/labs/summary view; no diagnostic problem list,
-    matching the institutional pattern where diagnostic reasoning is
-    physician-scope.
+  - physician — full clinical decision support; sees all five FHIR
+    tools (summary, problems, meds, labs, encounters).
+  - nurse — medication/labs/summary/encounters view; no diagnostic
+    problem list, matching the institutional pattern where ICD-10
+    diagnostic coding is physician-scope but visit summaries (intake,
+    triage, follow-up calls) are nurse-scope.
   - resident — physician-equivalent tool access, but every response is
     watermarked "supervised review recommended" so downstream consumers
     know the response is from a trainee.
@@ -52,6 +53,7 @@ _TOOLS_FOR_ROLE: dict[str, frozenset[str]] = {
             "get_problem_list",
             "get_medication_list",
             "get_recent_labs",
+            "get_recent_encounters",
         }
     ),
     ROLE_NURSE: frozenset(
@@ -59,9 +61,11 @@ _TOOLS_FOR_ROLE: dict[str, frozenset[str]] = {
             "get_patient_summary",
             "get_medication_list",
             "get_recent_labs",
-            # Note: no get_problem_list — diagnostic codes are physician-
-            # scope in this model. The agent's plan node sees a smaller
-            # tool set and adapts.
+            "get_recent_encounters",
+            # Visit-summary access is nurse-scope (intake, triage,
+            # follow-up calls) so encounters are included; diagnostic
+            # ICD-10 codes are still physician-scope, hence no
+            # get_problem_list.
         }
     ),
     ROLE_RESIDENT: frozenset(
@@ -70,6 +74,7 @@ _TOOLS_FOR_ROLE: dict[str, frozenset[str]] = {
             "get_problem_list",
             "get_medication_list",
             "get_recent_labs",
+            "get_recent_encounters",
         }
     ),
 }

@@ -57,6 +57,17 @@ export type ChatResponse = {
   trace: Trace
 }
 
+// Prior turn the client carries forward so the agent can answer
+// follow-ups like "is that trend concerning?". Server caps to the
+// last 8 entries; we cap on the client side too so the request stays
+// small and we don't push older context out of view.
+export type ChatTurn = {
+  role: 'user' | 'assistant'
+  content: string
+}
+
+export const MAX_CLIENT_HISTORY = 8
+
 export type Patient = {
   id: string
   label: string

@@ -11,7 +11,8 @@ import { PasswordResetRequest } from './components/PasswordResetRequest'
 import { PasswordResetConfirm } from './components/PasswordResetConfirm'
 import { Header } from './components/Header'
 import { api } from './api'
-import type { AuthStatus, AuthUser, ChatResponse } from './types'
+import type { AuthStatus, AuthUser, ChatResponse, ChatTurn } from './types'
+import { MAX_CLIENT_HISTORY } from './types'
 import './App.css'
 
 function getResetTokenFromUrl(): string | null {
@@ -43,6 +44,11 @@ function App() {
   const [elapsed, setElapsed] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [showResult, setShowResult] = useState(false)
+  // Conversation history for follow-up coherence (UC-2 "what changed
+  // since last visit?", UC-3 "is this trend concerning?"). Kept on
+  // the client and resent on each /chat call. Clears when the patient
+  // changes — different patient = different conversation.
+  const [history, setHistory] = useState<ChatTurn[]>([])
 
   // On mount: check for a reset_token in the URL first, otherwise check session.
   useEffect(() => {
@@ -78,6 +84,7 @@ function App() {
     setShowResult(false)
     setResult(null)
     setError(null)
+    setHistory([])
   }
 
   async function onLogout() {
@@ -87,6 +94,27 @@ function App() {
     setUser(null)
     setAuthStatus('unauthenticated')
     setSessionExpired(false)
+    setShowResult(false)
+    setResult(null)
+    setError(null)
+    setHistory([])
+  }
+
+  // Patient changed → flush history. Carrying turns about a different
+  // patient into a new conversation would confuse the agent and is
+  // exactly the kind of cross-patient leakage the patient-subject
+  // lock exists to prevent.
+  function changePatient(next: string) {
+    if (next === patientId) return
+    setPatientId(next)
+    setHistory([])
+    setShowResult(false)
+    setResult(null)
+    setError(null)
+  }
+
+  function clearConversation() {
+    setHistory([])
     setShowResult(false)
     setResult(null)
     setError(null)
@@ -100,8 +128,9 @@ function App() {
     setError(null)
     setElapsed(null)
 
+    const askedMessage = message
     const t0 = performance.now()
-    const res = await api.chat(patientId, message)
+    const res = await api.chat(patientId, askedMessage, history)
     setElapsed((performance.now() - t0) / 1000)
     setLoading(false)
 
@@ -117,6 +146,16 @@ function App() {
       return
     }
     setResult(res.data)
+    // Append this turn to history, keeping only the tail. Stripping
+    // trailing whitespace keeps the cost-vs-context tradeoff sane.
+    setHistory((prev) => {
+      const next: ChatTurn[] = [
+        ...prev,
+        { role: 'user', content: askedMessage.trim() },
+        { role: 'assistant', content: res.data.response.trim() },
+      ]
+      return next.slice(-MAX_CLIENT_HISTORY)
+    })
   }
 
   if (authStatus === 'loading') {
@@ -230,11 +269,15 @@ function App() {
         <aside className="workspace-form">
           <ChatForm
             patientId={patientId}
-            setPatientId={setPatientId}
+            setPatientId={changePatient}
             message={message}
             setMessage={setMessage}
             loading={loading}
             onSubmit={ask}
+            historyTurns={history.length / 2}
+            onClearConversation={
+              history.length > 0 ? clearConversation : undefined
+            }
           />
         </aside>
 

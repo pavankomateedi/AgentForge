@@ -88,25 +88,25 @@ Each use case below specifies (a) the trigger, (b) what the agent does, (c) why 
 
 **Trigger.** "What's new since I last saw her?" — typed or follow-up after UC-1.
 
-**What the agent does.** Identifies the date of the last encounter the user (or any clinician) had with this patient. Surfaces only changes since that date: new diagnoses, new/stopped medications, new labs (with reference range delta), new specialist letters, new ED or hospital encounters.
+**What the agent does.** Calls `get_recent_encounters` to anchor the previous visit's date and assessment, then walks `get_recent_labs` and `get_medication_list` for entries dated after that anchor. Surfaces only the changes: a new lab outside reference range, a new or stopped medication, a problem flagged at the prior assessment that now has a different status. Refills are not changes; dose adjustments are.
 
-**Why an agent.** This requires reasoning over time and across data types. A "recent activity" feed dumps everything chronologically; the agent decides what counts as a meaningful change. A med dose adjustment is a change; a med refill is not. A lab outside reference range is a change worth noting; one inside isn't.
+**Why an agent.** This requires reasoning over time and across data types. A "recent activity" feed dumps everything chronologically; the agent decides what counts as a meaningful change. The conversational shape matters because the user's natural follow-up ("just tell me what's new about the diabetes") narrows scope mid-conversation in a way a static dashboard can't.
 
-**Tools required.** `get_recent_encounters` (filtered by date), `get_medication_changes_since`, `get_lab_changes_since`, `get_problem_list_changes_since`, `get_external_records_since` (if available).
+**Tools required.** `get_recent_encounters` (anchors the date), `get_recent_labs`, `get_medication_list`, `get_problem_list`. Date math happens in the Reason node — the demo FHIR layer doesn't expose `_since` endpoints, mirroring the typical OpenEMR FHIR surface.
 
-**Verification requirements.** Date filtering is itself a verifiable claim ("since [date]"). Any "change" claim must reference both the prior and current state record. Refills must be excluded from "changes" by definition, with that decision explicit in the verification log.
+**Verification requirements.** The "since [date]" anchor is a citation: the encounter record's `source_id` must appear with the date. Any "change" claim must cite both the current record and reference the anchor encounter, so the verifier can confirm the comparison is grounded in two real retrievals rather than one real and one hallucinated baseline.
 
 ### UC-3: Lab Interpretation in Context
 
 **Trigger.** "Is this A1c trend concerning?" or "What's been happening with her creatinine?"
 
-**What the agent does.** Pulls the time series for the named lab(s), shows the values with dates and reference ranges, and provides a constrained interpretation: direction, magnitude relative to normal, and any correlated changes (new medication, new diagnosis) that might explain it. The agent does **not** issue clinical recommendations.
+**What the agent does.** Pulls the labs (`get_recent_labs`) and uses prior conversation turns (carried in `ChatRequest.history`) to know which lab the user means without the user having to repeat it. Shows the values with dates and reference ranges, applies the deterministic rule engine (e.g. `A1C_ABOVE_GOAL`, `CREATININE_ELEVATED`), and presents direction + magnitude. Correlates with `get_medication_list` and `get_problem_list` for context — a rising creatinine on metformin in a known-CKD patient is meaningfully different from the same trajectory in someone with no kidney history.
 
-**Why an agent.** The interpretation requires correlating multiple data sources (labs + meds + problems) and applying domain rules (what counts as a meaningful change for A1c vs. creatinine). A static graph shows the values but not their meaning. The clinician still owns the interpretation; the agent provides the evidence packet.
+**Why an agent.** Interpretation requires correlating multiple data sources and applying domain rules — exactly what `agent/rules.py` was built for. A static graph shows the values; the agent shows the values plus the rule-based flag plus the cross-rule (e.g. `METFORMIN_RENAL_CONTRAINDICATION`) that turns "creatinine elevated" into "this patient should not be on metformin."
 
-**Tools required.** `get_lab_history`, `get_medication_history`, `get_problem_list`, `evaluate_clinical_thresholds` (a deterministic rule-engine tool, not an LLM).
+**Tools required.** `get_recent_labs`, `get_medication_list`, `get_problem_list`. Rule engine runs automatically as a graph node after retrieval — not a tool the LLM picks, but a deterministic input it always receives.
 
-**Verification requirements.** Direction claims ("trending up") are verifiable from the data points. Threshold claims ("above goal for diabetic patients") use a rule table and cite which rule applied. The agent refuses to make recommendations; it provides evidence.
+**Verification requirements.** Direction claims ("trending up") are verifiable from the data points (the verifier's value-tolerance check enforces accuracy on each cited number). Threshold claims must reference a `rule_findings` entry; inventing thresholds the rule engine didn't produce is forbidden by the Reason prompt and audit-able from the trace. The agent provides evidence and rule-based flags; clinical recommendations remain physician-owned.
 
 ### UC-4: Medication Reconciliation
 
@@ -132,19 +132,51 @@ Each use case below specifies (a) the trigger, (b) what the agent does, (c) why 
 
 **Verification requirements.** The verification layer must catch any attempted response that includes information from a denied resource — even if cached from an earlier turn under a different identity. Session boundaries must be enforced.
 
+### UC-6: Encounter Review
+
+**Trigger.** "What did we discuss at the last visit?" or "Pull up the last encounter note." Often asked _during_ the room when the patient says "the doctor told me last time…" and Dr. Chen needs to verify the prior plan.
+
+**What the agent does.** Calls `get_recent_encounters` and surfaces the most recent visit's date, type, chief complaint, and assessment summary verbatim — no synthesis. If the user follows up with "and the visit before that?", carries the conversation forward via the `history` field and surfaces the second-most-recent encounter using the same encounter records already retrieved.
+
+**Why an agent.** A flowsheet view shows dates but not content. The note tab shows content but the most recent note may be 30 seconds away from open in a slow EMR. The agent answers in one breath, with the structured fields at hand and inline citations the clinician can click through to the note itself.
+
+**Why this isn't UC-2.** UC-2 reasons across data types to compute a delta. UC-6 reads back what was already said — no comparison, no rule engine. Same `get_recent_encounters` tool, different question shape.
+
+**Tools required.** `get_recent_encounters` (always), optionally `get_medication_list` if the user asks "and what did we change?" as a follow-up.
+
+**Verification requirements.** Every quoted phrase from the assessment summary must cite the encounter's `source_id`. The agent does not paraphrase the assessment summary in a way that could change clinical meaning — direct quotes only when the user is asking for a recap. The verifier's source-id matching pass is the enforcement point.
+
+### UC-7: Multi-Turn Trend Reasoning
+
+**Trigger.** A two-or-three-turn exchange. Turn 1: "Brief me on Robert Mitchell." (UC-1.) Turn 2: "Wait, his creatinine — has that been trending up?" Turn 3: "Should the metformin be reconsidered?"
+
+**What the agent does.** Each turn is a fresh retrieval bound to the current question, but the conversational `history` carries forward so turn 2 knows "his" refers to Robert Mitchell and turn 3 knows "the metformin" refers to the medication just surfaced. Turn 2 cites the lab time series + the rule engine's `CREATININE_ELEVATED` finding. Turn 3 cites the rule engine's `METFORMIN_RENAL_CONTRAINDICATION` cross-rule finding and provides the evidence — without making the prescribing recommendation itself, which stays physician-owned.
+
+**Why an agent.** A single-turn summary cannot anticipate the follow-up. A static dashboard cannot resolve "his" or "the metformin" — those are pronouns the user expects the system to bind from context. This is the use case that most directly justifies the conversational shape.
+
+**Why this isn't UC-3.** UC-3 is one turn. UC-7 is two-or-three turns where each turn re-retrieves and the cross-turn coherence is the user-visible value. The 8-turn server-side history cap (`MAX_HISTORY_TURNS`) was sized for this case.
+
+**Tools required.** Spans the same toolset as UC-1+UC-3: `get_patient_summary`, `get_problem_list`, `get_medication_list`, `get_recent_labs`, `get_recent_encounters`. The rule engine runs on every turn's retrieval.
+
+**Verification requirements.** The verifier runs on every turn independently — turn 2's response cannot cite a `source_id` from turn 1's retrieval bundle. The locked `patient_id` survives across turns; if the user pivots to a different patient, the UI flushes history (different conversation). The audit log records `history_len` per turn so a multi-turn session can be reconstructed end-to-end.
+
 ---
 
 ## Capability → Use Case Trace
 
-| Capability | Justifying use cases |
-|---|---|
-| Multi-turn conversation | UC-1 → UC-2 → UC-3 (briefing, then drill-downs) |
-| Tool chaining | UC-2 (date-filter then change-detect), UC-3 (labs + meds correlation) |
-| Source attribution | All use cases |
-| Domain rule engine | UC-3, UC-4 |
-| Refusal handling | UC-5; also UC-1–4 when data is missing |
-| Streaming responses | UC-1 (first content < 5 seconds) |
-| Conversation memory within session | UC-2, UC-3 (follow-ups) |
+| Capability | Implementation | Justifying use cases |
+|---|---|---|
+| Multi-turn conversation | `ChatRequest.history` → graph state → Plan + Reason | UC-1 → UC-2, UC-3, UC-6, **UC-7** |
+| Conversation memory within session | UI keeps last 8 turns; server caps to MAX_HISTORY_TURNS=8 | UC-2, UC-3, UC-6, **UC-7** |
+| Tool chaining (parallel) | `execute_tools_parallel` + Plan prompt nudges parallel calls | UC-1 (4-tool fan-out), UC-2 (encounters + labs + meds), UC-7 |
+| Encounter retrieval | `get_recent_encounters` (5th tool) | UC-1, UC-2, **UC-6**, UC-7 |
+| Source attribution | `verifier.py` source-id matching pass | All use cases |
+| Numeric value-tolerance check | `verifier.py` value-tolerance pass | UC-3, UC-7 (any numeric trend claim) |
+| Domain rule engine | `agent/rules.py` runs as a graph node every turn | UC-3, UC-4, UC-7 |
+| Patient subject locking | `agent/tools.py` structural enforcement | All use cases (defense against UC-7 cross-patient pivot) |
+| RBAC + assignment gate | `agent/rbac.py` + `/chat` upstream check | UC-5 (and pre-empts UC-1–7 for unassigned patients) |
+| Refusal handling | `refuse_*` terminal nodes in `agent/graph.py` | UC-5; also UC-1–7 when data is missing or unverified |
+| Audit trail | `agent/audit.py` append-only log + Langfuse trace per turn | All use cases (per `HIPAA_COMPLIANCE.md` §164.312(b)) |
 
 If `ARCHITECTURE.md` proposes a capability not in this table, it gets cut.
 

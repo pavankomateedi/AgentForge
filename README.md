@@ -22,6 +22,31 @@
 
 ---
 
+## Grader credentials
+
+Two pre-enrolled accounts on the live deployment. **MFA is mandatory**, so the TOTP secrets below are published so a 6-digit code can be generated without the in-app QR enrollment dance. (Synthetic data only — publishing TOTP secrets like this would be a security violation against real PHI; see [HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md) §164.312(d).)
+
+| Account | Password | Role | Patients | TOTP secret (base32) |
+|---|---|---|---|---|
+| `grader.demo` | `GraderDemo!2026` | physician | all 5 demo patients | `6AV66JNIZTTPEBNBIUQWE2M7GVPNKDBD` |
+| `nurse.adams` | `NurseDemo!2026` | nurse | `demo-001` only — exercises the RBAC refusal path on every other patient | `LMLIHJIU6JGPW2KCFYDVLGETQX54QUFG` |
+
+**Get a current 6-digit code three ways:**
+
+```bash
+# 1. One-liner with the bundled pyotp
+python -c "import pyotp; print(pyotp.TOTP('6AV66JNIZTTPEBNBIUQWE2M7GVPNKDBD').now())"
+
+# 2. Authy / Google Authenticator / 1Password — add account, choose
+#    "Enter setup key", paste the base32 secret above
+```
+
+3. Online generator: paste the secret into [totp.danhersam.com](https://totp.danhersam.com/) (or any equivalent) — only acceptable here because the secret is already public for synthetic-data demo purposes.
+
+Sign-in flow: enter username + password → MFA challenge appears (not enrollment) → enter the 6-digit code → land on the workspace. Sessions idle out after 5 minutes; absolute max 8 hours.
+
+---
+
 ## Stack
 
 | Layer | What's actually running |
@@ -333,13 +358,17 @@ Optional, for production. Without `RESEND_API_KEY` set, password-reset still wor
 |---|---|
 | Forked repo | This repository |
 | Setup guide | This README |
+| **Pre-enrolled grader credentials** | "Grader credentials" section at the top of this README — `grader.demo` (physician) + `nurse.adams` (nurse), both pre-enrolled with published TOTP secrets so MFA does not block live walkthrough |
 | Audit document | [AUDIT.md](./AUDIT.md) |
-| User doc | [USERS.md](./USERS.md) |
+| User doc — 7 use cases (UC-1 → UC-7) | [USERS.md](./USERS.md) |
 | Architecture doc | [ARCHITECTURE.md](./ARCHITECTURE.md) |
-| Cost analysis | [ARCHITECTURE.md §8](./ARCHITECTURE.md) |
+| HIPAA compliance posture + AWS blueprint | [HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md) + [terraform/](./terraform/) |
+| Cost analysis | [ARCHITECTURE.md §8](./ARCHITECTURE.md), [COST_ANALYSIS.md](./COST_ANALYSIS.md) |
 | Deployed app | Railway public URL at top of this README |
 | Demo video | _(link at top)_ |
-| Eval dataset | [`eval/`](./eval/) directory; run `make eval` (or `make eval-live` for the LLM tests) |
+| Eval dataset (200 tests, 4 layers) | [`eval/`](./eval/) directory; run `make eval` (or `make eval-live` for the LLM tests) |
+| **Multi-turn conversation support** | `ChatRequest.history` field, capped to 8 turns server-side; UI carries history per conversation. Tested by [eval/test_chat_history.py](./eval/test_chat_history.py) |
+| **5 FHIR tools** incl. `get_recent_encounters` | [agent/tools.py](./agent/tools.py); RBAC whitelist in [agent/rbac.py](./agent/rbac.py) |
 
 ---
 

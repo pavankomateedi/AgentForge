@@ -75,13 +75,21 @@ async def run_turn(
     user_id: str | None = None,
     user_role: str | None = None,
     available_tools: list[dict[str, Any]] | None = None,
+    history: list[dict[str, str]] | None = None,
 ) -> TurnResult:
+    """history — optional list of {role, content} dicts (Anthropic message
+    shape) representing prior turns in this conversation. Threaded into
+    both Plan and Reason so follow-up questions resolve coherently. The
+    patient_id locked into plan_user_content always wins, so history
+    cannot pivot the agent to a different patient. Caller is expected
+    to have already capped length."""
     trace = TurnTrace(trace_id=uuid.uuid4().hex[:12])
     log.info(
-        "turn[%s] start patient=%s msg_len=%d",
+        "turn[%s] start patient=%s msg_len=%d history=%d",
         trace.trace_id,
         patient_id,
         len(user_message),
+        len(history or []),
     )
 
     initial_state: dict[str, Any] = {
@@ -92,6 +100,7 @@ async def run_turn(
         "user_id": user_id,
         "user_role": user_role,
         "available_tools": available_tools,
+        "history": history or [],
         "trace": trace,
     }
 
