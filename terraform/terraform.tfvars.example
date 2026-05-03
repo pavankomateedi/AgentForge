@@ -1,0 +1,41 @@
+# Example variables file. Copy to terraform.tfvars and fill in real
+# values BEFORE running terraform plan / apply against your account.
+#
+#   cp terraform.tfvars.example terraform.tfvars
+#   # ... edit values ...
+#   terraform plan
+#
+# terraform.tfvars is gitignored (see ../.gitignore) — never commit it.
+
+aws_region   = "us-east-1"
+environment  = "prod"
+owner_email  = "you@example.com"
+
+vpc_cidr   = "10.42.0.0/16"
+az_count   = 2
+
+# Public hostname for the ALB. Must be a Route 53-hosted domain you control.
+domain_name         = "copilot.example.com"
+acm_certificate_arn = "arn:aws:acm:us-east-1:000000000000:certificate/REPLACE-ME"
+
+# Container image — pushed by CI to ECR. The image URI uses the
+# digest of the latest known-good build.
+container_image = "000000000000.dkr.ecr.us-east-1.amazonaws.com/ccp-prod-app@sha256:REPLACE-ME"
+
+# Compute sizing — start small.
+task_cpu              = 512
+task_memory           = 1024
+service_desired_count = 2
+
+# Database — Multi-AZ db.t4g.medium is the smallest practical HIPAA-grade setup.
+db_instance_class        = "db.t4g.medium"
+db_allocated_storage_gb  = 50
+db_backup_retention_days = 35
+
+# Observability
+log_retention_days       = 90
+alarm_notification_email = "oncall@example.com"
+
+# Agent runtime config (passed through to env)
+anthropic_model    = "claude-opus-4-7"
+daily_token_budget = 200000

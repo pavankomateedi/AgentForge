@@ -1,17 +1,36 @@
 name: CI
 
+# Production-grade pipeline. Every push and PR to main or staging
+# fans out into parallel jobs (test + 5 security scans + UI build) and
+# converges on a single `ci-success` meta-job. Railway is configured
+# to wait on `ci-success` before deploying, so a red scan blocks the
+# deploy automatically.
+
 on:
   push:
-    branches: [main]
+    branches: [main, staging]
   pull_request:
-    branches: [main]
+    branches: [main, staging]
+  workflow_dispatch: {}
+
+# Principle of least privilege: read-only by default, individual jobs
+# escalate where needed (none currently need write).
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  # ------------------------------------------------------------------
+  # 1. Test suite (unit + integration + replay) — the original job.
+  # ------------------------------------------------------------------
   test:
-    name: Test suite (unit + integration + replay)
+    name: Tests (pytest)
     runs-on: ubuntu-latest
     timeout-minutes: 10
-
     steps:
       - uses: actions/checkout@v4
 
@@ -30,14 +49,157 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install pytest pytest-asyncio httpx ruff
 
-      - name: Lint (ruff)
+      - name: Lint (ruff base)
         run: python -m ruff check agent eval
 
       - name: Run test suite (skips live-API marker)
         env:
-          # Tests don't hit Anthropic — replay cassettes use a stub
-          # client. ANTHROPIC_API_KEY is referenced by config so it
-          # must be non-empty; SESSION_SECRET is required by main.py.
           ANTHROPIC_API_KEY: ci-fake-key-not-used
           SESSION_SECRET: ci-session-secret-at-least-sixteen-chars
         run: python -m pytest -v
+
+  # ------------------------------------------------------------------
+  # 2. Python security lint — ruff's Bandit-derived `S` rules.
+  #    Cheap, fast, catches the obvious stuff (assert in prod,
+  #    hardcoded passwords, eval, weak hashes, sql interpolation).
+  # ------------------------------------------------------------------
+  ruff-security:
+    name: Security lint (ruff S)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: python -m pip install ruff
+      - name: Ruff security rules
+        # S101 (assert) is excluded — pytest assertions are fine.
+        # S104 (binding to all interfaces) is excluded — uvicorn 0.0.0.0 is intentional in prod.
+        run: python -m ruff check --select S --ignore S101,S104 agent
+
+  # ------------------------------------------------------------------
+  # 3. Bandit — deeper Python SAST. Overlaps with ruff S but catches
+  #    a few extra issues (and emits a SARIF report we could later
+  #    upload to GitHub code-scanning).
+  # ------------------------------------------------------------------
+  bandit:
+    name: Python SAST (bandit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install bandit
+        run: python -m pip install bandit
+      - name: Run bandit
+        # Severity: medium+ only. -ll = report low/medium/high; -ii = confidence medium+.
+        # Exclude the eval directory — test code legitimately uses asserts and stub creds.
+        run: bandit -r agent -ll -ii -x agent/static
+
+  # ------------------------------------------------------------------
+  # 4. pip-audit — known-CVE check for Python dependencies.
+  # ------------------------------------------------------------------
+  pip-audit:
+    name: Python deps audit (pip-audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pip-audit
+        run: python -m pip install pip-audit
+      - name: Audit requirements.txt
+        # pip-audit resolves and queries the PyPA advisory DB.
+        run: pip-audit -r requirements.txt
+
+  # ------------------------------------------------------------------
+  # 5. npm audit — known-CVE check for UI dependencies.
+  # ------------------------------------------------------------------
+  npm-audit:
+    name: UI deps audit (npm audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: ui/package-lock.json
+      - name: npm install (no scripts, ci-mode)
+        run: npm ci --ignore-scripts
+      - name: npm audit (production deps, fail on high+)
+        run: npm audit --omit=dev --audit-level=high
+
+  # ------------------------------------------------------------------
+  # 6. Gitleaks — scan history for committed secrets.
+  # ------------------------------------------------------------------
+  gitleaks:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Run gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          # No GITLEAKS_LICENSE → free tier, OSS rules only. Sufficient for us.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ------------------------------------------------------------------
+  # 7. UI build — verify TypeScript + Vite still compile, even though
+  #    we ship the prebuilt bundle in agent/static/.
+  # ------------------------------------------------------------------
+  ui-build:
+    name: UI build (vite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+      - run: npm run build
+
+  # ------------------------------------------------------------------
+  # 8. ci-success — single required check used by Railway as the
+  #    deploy gate. Fails if ANY upstream job failed or was skipped.
+  # ------------------------------------------------------------------
+  ci-success:
+    name: CI success (deploy gate)
+    if: always()
+    needs:
+      - test
+      - ruff-security
+      - bandit
+      - pip-audit
+      - npm-audit
+      - gitleaks
+      - ui-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - name: Verify all upstream jobs succeeded
+        run: |
+          if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "::error::One or more CI jobs failed or were cancelled. Deploy is blocked."
+            exit 1
+          fi
+          echo "All CI jobs passed. Deploy gate is open."

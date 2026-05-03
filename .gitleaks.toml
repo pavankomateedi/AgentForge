@@ -1,0 +1,28 @@
+# Gitleaks config — extends the default ruleset, then carves out
+# specific known-safe paths so the scan stays signal-rich.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Known-safe paths and example values"
+
+# .env.example is a template with placeholder values, not real
+# credentials. We keep it in the repo so first-time users have a
+# fillable list of every variable.
+paths = [
+    '''\.env\.example$''',
+    # Built UI bundle is committed for Railway's nixpacks builder; it
+    # may contain inline asset hashes that look secret-shaped.
+    '''agent/static/.*''',
+    # Test fixtures and ci-fake- prefixed strings are intentional fakes.
+    '''eval/.*''',
+]
+
+# Allow specific placeholder strings used in the README and docs.
+regexes = [
+    '''ci-fake-key.*''',
+    '''ci-session-secret-at-least-sixteen-chars''',
+    '''sk-ant-\.\.\.''',
+    '''re_\.\.\.''',
+]

@@ -530,26 +530,67 @@ Every conversation is locked to a single patient. The patient id is set at conve
 
 ## 7. Deployment Topology
 
-**Primary target: Oracle Cloud Always-Free ARM VM** (4 cores, 24 GB RAM, plenty for our stack).
+The deployment is split into three explicit layers, each labeled with
+the **data class** it is allowed to hold. Loading anything beyond
+that label is a policy violation, not just an operational mistake.
+
+| Layer | Where | Data class | Status | Why |
+|---|---|---|---|---|
+| **v0 demo** | Railway (Nixpacks builder, `Procfile` + `railway.json`) | Synthetic only — **no real PHI** | Live | Fastest path to a public URL with HTTPS for grader/demo use. Railway is _not_ HIPAA-eligible (no BAA, no customer-managed KMS keys, 30-day audit log retention) — see [HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md). |
+| **v0+ staging** | Railway, second service tracking the `staging` branch | Synthetic only | Documented (`README.md` §"Staging environment"); operator-provisioned | Catch breaking changes before they land on the demo URL; gives the smoke workflow a meaningful pre-prod target. |
+| **v1 production** | AWS HIPAA-eligible — see [`terraform/`](./terraform/) | Real PHI (only after BAAs and §164.308 administrative items are in place) | Blueprint only — `terraform plan`-able, **not applied** | The first deployment that can lawfully process ePHI. Code lives in `terraform/`; the gating items live in [HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md). |
+
+### v1 production (AWS) at a glance
 
 ```
-Oracle VM
-├── Docker Compose
-│   ├── openemr (PHP-FPM + Apache)
-│   ├── mariadb (OpenEMR data)
-│   ├── agent-service (FastAPI)
-│   ├── audit-db (MariaDB, separate volume)
-│   ├── langfuse (web + worker)
-│   ├── postgres (Langfuse backing)
-│   └── caddy (TLS, reverse proxy, public entry)
-└── Cloudflare DNS → Caddy → services
+Internet → Route 53 → ACM cert → ALB (WAFv2) ─┐
+                                              │
+                                       VPC (10.42.0.0/16)
+   ┌─ public subnets: ALB + NAT GWs ──────────┤
+   └─ private subnets:                        │
+        ECS Fargate service (2 tasks, 2 AZ) ──┤── RDS PostgreSQL Multi-AZ
+                                              │     (KMS-encrypted, automated backups,
+        Egress to api.anthropic.com           │      35-day retention + S3 archival)
+        and us.cloud.langfuse.com via NAT     │
+                                              │
+   Secrets Manager (KMS-encrypted, 5 entries) │
+   CloudWatch Logs (KMS-encrypted, 90d hot, S3 cold tail)
+   SNS alarms → email/PagerDuty
 ```
 
-Caddy handles TLS via Let's Encrypt automatically. All inter-service traffic is on a private Docker network.
+Service breakdown and HIPAA-eligibility justification are in
+[`terraform/README.md`](./terraform/README.md) and
+[HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md). The Terraform code is
+intentionally `terraform plan`-able with placeholder variables and
+intentionally **not yet applied** — the gating items are
+organizational (BAAs, designated Security Officer, risk assessment),
+not technical.
 
-**Tuesday fallback: local + Cloudflare Tunnel.** If Oracle account approval delays things, the same compose stack runs locally and is exposed via `cloudflared` for the demo. This is documented in the README.
+### CI/CD pipeline
 
-**CI/CD.** GitHub Actions: on push to `main`, run eval suite + unit tests; on tag, build images and SSH-deploy to the Oracle VM via `docker compose pull && up -d`.
+`.github/workflows/ci.yml` runs on every push and PR to `main` and
+`staging`. Eight parallel jobs converge on a single `ci-success`
+meta-check that Railway uses as its deploy gate:
+
+| Job | Purpose |
+|---|---|
+| `test` | pytest — unit + integration + replay |
+| `ruff-security` | Ruff `S` rules (Bandit-derived security lint) |
+| `bandit` | Standalone Python SAST |
+| `pip-audit` | Known-CVE scan of Python deps |
+| `npm-audit` | Known-CVE scan of UI deps |
+| `gitleaks` | Scan history for committed secrets |
+| `ui-build` | Verify React + Vite + TS bundle still compiles |
+| `ci-success` | Meta — fails if any of the above failed |
+
+A separate workflow (`.github/workflows/smoke-prod.yml`) runs
+post-deploy: hits `/health` and an authenticated `/chat` (TOTP
+computed from a repo-secret seed) every 30 minutes during business
+hours, after every successful CI on `main`/`staging`, and on demand
+via the Actions tab. Smoke failures page the on-call channel.
+
+Dependabot opens grouped weekly PRs for Python, npm, and GitHub
+Actions versions, all of which clear the same eight-job gate.
 
 ---
 
