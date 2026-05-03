@@ -3,6 +3,7 @@
 import type {
   AuthUser,
   ChatResponse,
+  ChatTurn,
   LoginResponse,
   MfaSetupResponse,
 } from './types'
@@ -76,9 +77,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ token, new_password: newPassword }),
     }),
-  chat: (patientId: string, message: string) =>
+  chat: (patientId: string, message: string, history: ChatTurn[] = []) =>
     request<ChatResponse>('/chat', {
       method: 'POST',
-      body: JSON.stringify({ patient_id: patientId, message }),
+      body: JSON.stringify({
+        patient_id: patientId,
+        message,
+        history,
+      }),
     }),
 }

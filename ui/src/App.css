@@ -851,6 +851,12 @@ button.link:hover {
   color: var(--accent-hover);
 }
 
+.history-indicator {
+  font-size: 12px;
+  color: var(--muted);
+  margin-left: auto;
+}
+
 .secret-block {
   width: 100%;
   text-align: center;

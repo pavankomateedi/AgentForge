@@ -75,6 +75,9 @@ class TurnState(TypedDict, total=False):
     user_id: str | None
     user_role: str | None
     available_tools: list[dict[str, Any]] | None
+    # Prior turns for follow-up coherence. Empty list = single-turn
+    # behavior. Capped server-side in /chat before reaching here.
+    history: list[dict[str, str]]
 
     # ---- Mutated by nodes ----
     trace: Any  # TurnTrace, kept Any to avoid circular import
@@ -107,6 +110,16 @@ async def plan_node(state: TurnState) -> dict[str, Any]:
         f"User question: {user_message}"
     )
 
+    # Prior turns (if any) are inserted BEFORE the locked-patient
+    # prompt. Order matters: the locked-patient instruction is the
+    # last user-role message the model sees, so any prior reference
+    # to a different patient cannot override the current scope.
+    history = state.get("history") or []
+    plan_messages: list[dict[str, Any]] = [
+        *history,
+        {"role": "user", "content": plan_user_content},
+    ]
+
     # Note: thinking is disabled here because the Anthropic API rejects
     # `thinking=adaptive` combined with `tool_choice` that forces tool
     # use — the two intents conflict. Plan is a simple "pick tools"
@@ -124,7 +137,7 @@ async def plan_node(state: TurnState) -> dict[str, Any]:
         ],
         tools=plan_tools,
         tool_choice={"type": "any"},
-        messages=[{"role": "user", "content": plan_user_content}],
+        messages=plan_messages,
     )
     elapsed = _elapsed_ms(t0)
 
@@ -232,8 +245,12 @@ async def retrieve_node(state: TurnState) -> dict[str, Any]:
         )
 
     # Stash the raw tool_results for the reason node (it builds the
-    # message list off them).
+    # message list off them). History is prepended so Reason has the
+    # same conversational context Plan saw, then the tool-call /
+    # tool-result chain for THIS turn.
+    history = state.get("history") or []
     base_messages: list[dict[str, Any]] = [
+        *history,
         {
             "role": "user",
             "content": state["plan_user_content"],

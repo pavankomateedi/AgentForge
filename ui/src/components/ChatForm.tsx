@@ -8,6 +8,10 @@ type Props = {
   setMessage: (msg: string) => void
   loading: boolean
   onSubmit: () => void
+  // Conversation history affordance — optional so single-turn callers
+  // (e.g. tests) don't need to plumb it through.
+  historyTurns?: number
+  onClearConversation?: () => void
 }
 
 export function ChatForm({
@@ -17,6 +21,8 @@ export function ChatForm({
   setMessage,
   loading,
   onSubmit,
+  historyTurns = 0,
+  onClearConversation,
 }: Props) {
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
@@ -80,6 +86,21 @@ export function ChatForm({
           {loading ? 'Thinking…' : 'Ask'}
         </button>
         <span className="hint">Ctrl/⌘ + Enter</span>
+        {historyTurns > 0 && (
+          <span className="history-indicator" aria-live="polite">
+            {historyTurns} prior turn{historyTurns === 1 ? '' : 's'} in context
+          </span>
+        )}
+        {onClearConversation && (
+          <button
+            type="button"
+            className="link"
+            onClick={onClearConversation}
+            disabled={loading}
+          >
+            Clear
+          </button>
+        )}
       </div>
     </section>
   )

@@ -6,6 +6,7 @@ import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 import anthropic
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -19,6 +20,14 @@ from agent.config import Config, get_config
 from agent.db import connect, init_db
 from agent.orchestrator import run_turn
 from agent.tools import TOOLS
+
+
+# Cap on history forwarded to the LLM. Eight turns = four user/
+# assistant pairs, plenty for follow-ups like "what changed since last
+# visit?" without inflating token cost or context window past Plan +
+# Reason headroom. Server enforces; clients can send more but only the
+# tail wins.
+MAX_HISTORY_TURNS = 8
 
 
 log = logging.getLogger(__name__)
@@ -288,12 +297,37 @@ app.add_middleware(
 app.include_router(auth.router)
 
 
+class ChatTurn(BaseModel):
+    """One prior exchange the client wants the agent to consider for
+    context. The role mirrors Anthropic's API roles. Content is plain
+    text — `<source/>` tags from prior assistant turns are kept (the
+    Reason model uses them for follow-up coherence) but the verifier
+    still only validates the CURRENT turn's output against the current
+    turn's retrieval bundle."""
+
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1, max_length=8000)
+
+
 class ChatRequest(BaseModel):
     patient_id: str = Field(
         ..., description="Patient identifier locked to this conversation"
     )
     message: str = Field(
         ..., description="The clinician's natural-language question"
+    )
+    # Optional prior turns for follow-up coherence. The server caps to
+    # MAX_HISTORY_TURNS regardless of what the client sends, both to
+    # bound LLM cost and to defend against a malicious client trying
+    # to blow up the context window. Default empty preserves single-
+    # turn behavior.
+    history: list[ChatTurn] = Field(
+        default_factory=list,
+        max_length=64,
+        description=(
+            "Prior turns in this conversation. Server keeps the last "
+            f"{MAX_HISTORY_TURNS} entries."
+        ),
     )
 
 
@@ -381,6 +415,16 @@ async def chat(
     # ---- Role-aware tool filtering ----
     available_tools = rbac.filter_tools_for_role(current_user.role, TOOLS)
 
+    # ---- Conversation history (capped) ----
+    # Trim BEFORE handing to the orchestrator so an oversized client
+    # request can't accidentally inflate token cost or trip the per-
+    # call context limit. We keep the tail because the most recent
+    # turns disambiguate the current question best.
+    history_payload = [
+        {"role": h.role, "content": h.content}
+        for h in req.history[-MAX_HISTORY_TURNS:]
+    ]
+
     result = await run_turn(
         client=_client,
         model=_config.model,
@@ -389,6 +433,7 @@ async def chat(
         user_id=str(current_user.id),
         user_role=current_user.role,
         available_tools=available_tools,
+        history=history_payload,
     )
 
     # ---- Resident watermark ----
@@ -427,6 +472,7 @@ async def chat(
         details={
             "patient_id": req.patient_id,
             "message_len": len(req.message),
+            "history_len": len(history_payload),
             "trace_id": result.trace.trace_id,
             "verified": result.verified,
             "regenerated": result.trace.regenerated,
