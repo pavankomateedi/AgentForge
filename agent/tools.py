@@ -75,6 +75,24 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["patient_id"],
         },
     },
+    {
+        "name": "get_recent_encounters",
+        "description": (
+            "Retrieve the patient's recent encounter history (most recent first). "
+            "Each entry has date, encounter type (office visit, telehealth, ER, "
+            "hospitalization), provider, chief complaint, and a brief assessment "
+            "summary. Use this for follow-up questions like 'what changed since "
+            "the last visit?', to find the date of the previous encounter, or "
+            "to summarize what was addressed at prior visits."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "patient_id": {"type": "string"},
+            },
+            "required": ["patient_id"],
+        },
+    },
 ]
 
 
@@ -113,6 +131,10 @@ async def execute_tool(
         return {"medications": record["medications"]}
     if tool_name == "get_recent_labs":
         return {"labs": record["recent_labs"]}
+    if tool_name == "get_recent_encounters":
+        # Demo data ships encounters newest-first; the dispatcher
+        # preserves that order for the LLM.
+        return {"encounters": record.get("recent_encounters", [])}
 
     raise ToolNotFound(f"Unknown tool: {tool_name}")
 

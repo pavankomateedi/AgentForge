@@ -135,7 +135,7 @@ def test_chat_succeeds_when_user_is_assigned(
 # --- Role-based tool whitelist ---
 
 
-def test_physician_sees_all_four_tools(
+def test_physician_sees_all_tools(
     client: TestClient, config: Config, stub_run_turn
 ) -> None:
     info = _make_user_with_role(config, "physician", username="dr.full")
@@ -150,6 +150,7 @@ def test_physician_sees_all_four_tools(
         "get_problem_list",
         "get_medication_list",
         "get_recent_labs",
+        "get_recent_encounters",
     }
 
 
@@ -167,6 +168,7 @@ def test_nurse_does_not_see_problem_list_tool(
     assert tool_names == {
         "get_patient_summary",
         "get_medication_list",
+        "get_recent_encounters",
         "get_recent_labs",
     }
     assert call["user_role"] == "nurse"
@@ -187,6 +189,7 @@ def test_resident_sees_all_tools_like_physician(
         "get_problem_list",
         "get_medication_list",
         "get_recent_labs",
+        "get_recent_encounters",
     }
 
 
