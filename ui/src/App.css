@@ -152,15 +152,12 @@
   white-space: pre-wrap;
 }
 
-/* Two small meta cards in a row under each briefing — verification +
-   rule findings. The technical trace card was removed from the UX
-   (operator signal, not clinician signal); per-node timings + Langfuse
-   live in the audit log + Langfuse dashboard. */
-.conversation-meta {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
+/* The verification and trace cards were removed from the per-turn
+   UX (operator signal, not clinician signal). The clinician's
+   verification cue is the green Verified badge in the BriefingCard
+   header; rule findings render as a single card below the briefing.
+   Verifier counts + per-node timings + Langfuse links are still
+   recorded server-side for audit / ops. */
 
 .page-header {
   margin-bottom: 28px;
@@ -529,7 +526,6 @@ button.primary:disabled {
 /* Compact card spacing for the workspace (overrides .card defaults). */
 .workspace .card,
 .briefing-card,
-.verification-card,
 .findings-card,
 .workspace-form .card {
   padding: 16px 18px;
@@ -598,41 +594,6 @@ button.primary:disabled {
   font-size: 13px;
   color: var(--text-muted);
   line-height: 1.5;
-}
-
-/* Verification card — key/value list. */
-.kv-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.kv-list li {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  font-size: 13px;
-}
-
-.kv-key {
-  color: var(--text-muted);
-}
-
-.kv-val {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-.kv-val.ok-text {
-  color: var(--success-text);
-}
-
-.kv-val.warn-text {
-  color: var(--warn-text);
 }
 
 /* Rule findings card — color-coded per severity. */

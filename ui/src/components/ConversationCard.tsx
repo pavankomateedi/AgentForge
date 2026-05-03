@@ -1,11 +1,13 @@
 // One render-able exchange in the visible transcript. Question bubble
-// at top, then briefing + verification + rule findings (the technical
-// trace card was removed — it's operator signal, not clinician
-// signal). Loading and error states are scoped to the per-turn props
-// so older turns stay rendered as you ask follow-ups.
+// + briefing + rule findings. The verification and trace cards were
+// removed — both are operator signal, not clinician signal. The
+// clinician's verification cue is the green checkmark badge in the
+// BriefingCard header; the trace and verifier-detail counts still
+// run server-side and live in the audit log + Langfuse for ops use.
+// Loading and error states are scoped to the per-turn props so older
+// turns stay rendered as you ask follow-ups.
 
 import { BriefingCard } from './BriefingCard'
-import { VerificationCard } from './VerificationCard'
 import { RuleFindingsCard } from './RuleFindingsCard'
 import type { Turn } from '../types'
 
@@ -30,10 +32,7 @@ export function ConversationCard({ turn, onRetry }: Props) {
         onRetry={turn.error && !turn.loading ? onRetry : undefined}
       />
 
-      <div className="conversation-meta">
-        <VerificationCard loading={turn.loading} result={turn.result} />
-        <RuleFindingsCard loading={turn.loading} result={turn.result} />
-      </div>
+      <RuleFindingsCard loading={turn.loading} result={turn.result} />
     </article>
   )
 }
