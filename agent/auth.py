@@ -47,6 +47,11 @@ class User:
     failed_login_attempts: int
     locked_until: datetime | None
     totp_enrolled: bool
+    # Synthetic-data demo accounts can opt out of the MFA challenge
+    # by setting bypass_mfa=True in EXTRA_USERS_JSON. Independent of
+    # totp_enrolled — the bypass wins. NEVER true on a user that
+    # touches real ePHI; see HIPAA_COMPLIANCE.md §164.312(d).
+    bypass_mfa: bool = False
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "User":
@@ -59,6 +64,7 @@ class User:
             failed_login_attempts=row["failed_login_attempts"],
             locked_until=_parse_dt(row["locked_until"]),
             totp_enrolled=bool(row["totp_enrolled"]),
+            bypass_mfa=bool(row["bypass_mfa"]),
         )
 
     def is_locked(self, now: datetime | None = None) -> bool:
@@ -208,6 +214,21 @@ def reset_mfa(database_url: str, user_id: int) -> None:
                    updated_at = datetime('now')
                WHERE id = ?""",
             (user_id,),
+        )
+        conn.commit()
+
+
+def _set_bypass_mfa(database_url: str, user_id: int, bypass: bool) -> None:
+    """Internal: flip the bypass-MFA flag. Called from the bootstrap
+    when EXTRA_USERS_JSON declares bypass_mfa=true. Not exposed via any
+    HTTP endpoint — only operator-set, never user-set."""
+    with connect(database_url) as conn:
+        conn.execute(
+            """UPDATE users
+               SET bypass_mfa = ?,
+                   updated_at = datetime('now')
+               WHERE id = ?""",
+            (1 if bypass else 0, user_id),
         )
         conn.commit()
 
@@ -505,6 +526,28 @@ def login(
 
     refreshed = get_user_by_id(config.database_url, user.id)
     assert refreshed is not None
+
+    # MFA bypass — only honored for accounts explicitly flagged in
+    # EXTRA_USERS_JSON. Audit log records the bypass distinctly from a
+    # normal MFA-verified login so the trail makes the carve-out
+    # visible. Documented in HIPAA_COMPLIANCE.md §164.312(d).
+    if refreshed.bypass_mfa:
+        _set_session(request, refreshed.id)
+        audit.record(
+            config.database_url,
+            audit.AuditEvent.LOGIN_MFA_BYPASSED,
+            user_id=refreshed.id,
+            ip_address=ip,
+            details={"reason": "account flagged bypass_mfa=true"},
+        )
+        audit.record(
+            config.database_url,
+            audit.AuditEvent.LOGIN_SUCCESS,
+            user_id=refreshed.id,
+            ip_address=ip,
+            details={"via": "mfa_bypass"},
+        )
+        return LoginOut(user=_user_out(refreshed), needs_mfa=False)
 
     _set_pending_mfa(request, refreshed.id)
     if refreshed.totp_enrolled:

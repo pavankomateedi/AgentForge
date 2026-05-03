@@ -27,6 +27,11 @@ class AuditEvent:
     MFA_ENROLLED = "mfa_enrolled"
     MFA_VERIFIED = "mfa_verified"
     MFA_FAILED = "mfa_failed"
+    # Login that skipped the MFA challenge because the account was
+    # explicitly flagged bypass_mfa=true in EXTRA_USERS_JSON. Distinct
+    # from MFA_VERIFIED so the audit trail makes the carve-out
+    # auditable; HIPAA_COMPLIANCE.md §164.312(d) calls this out.
+    LOGIN_MFA_BYPASSED = "login_mfa_bypassed"
     CHAT_REQUEST = "chat_request"
     CHAT_REFUSED_UNASSIGNED = "chat_refused_unassigned"
     PATIENT_ASSIGNED = "patient_assigned"
