@@ -329,8 +329,14 @@ function App() {
               </p>
             </div>
           ) : (
+            // Render newest-first so the most recent question + answer
+            // is at the top of the panel without scrolling. Underlying
+            // `turns` array stays chronological — only the rendering is
+            // reversed, so deriveHistoryFromTurns() (which builds the
+            // server-side history payload) keeps its oldest-first
+            // semantics that the LLM expects.
             <ol className="conversation-list">
-              {turns.map((t) => (
+              {[...turns].reverse().map((t) => (
                 <li key={t.id}>
                   <ConversationCard
                     turn={t}
