@@ -5,7 +5,8 @@ created on first run; idempotent. For production, swap to Postgres or use
 Railway Volumes for persistence (Railway's filesystem is ephemeral by default,
 which means each redeploy clears the SQLite DB).
 
-Tables: users, audit_log, password_reset_tokens.
+Tables: users, audit_log, password_reset_tokens, patient_assignments,
+daily_token_usage, documents, derived_observations.
 """
 
 from __future__ import annotations
@@ -84,6 +85,48 @@ CREATE TABLE IF NOT EXISTS daily_token_usage (
 );
 
 CREATE INDEX IF NOT EXISTS idx_daily_usage_user_date ON daily_token_usage(user_id, usage_date);
+
+-- Week 2: multimodal document ingestion.
+-- documents holds the source-of-truth blob; derived_observations holds
+-- the schema-validated facts extracted from it. Re-extraction replaces
+-- rows in derived_observations without touching the original document.
+-- See W2_ARCHITECTURE.md §3 for rationale.
+CREATE TABLE IF NOT EXISTS documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    patient_id TEXT NOT NULL,
+    doc_type TEXT NOT NULL,                    -- 'lab_pdf' | 'intake_form'
+    file_blob BLOB NOT NULL,
+    file_hash TEXT NOT NULL,                   -- SHA-256 hex of file_blob, for dedup
+    content_type TEXT NOT NULL,
+    uploaded_by_user_id INTEGER NOT NULL,
+    uploaded_at TEXT NOT NULL DEFAULT (datetime('now')),
+    extraction_status TEXT NOT NULL DEFAULT 'pending',
+    extraction_error TEXT,
+    UNIQUE(patient_id, file_hash),
+    FOREIGN KEY (uploaded_by_user_id) REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_documents_patient ON documents(patient_id);
+CREATE INDEX IF NOT EXISTS idx_documents_uploader ON documents(uploaded_by_user_id);
+CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(extraction_status);
+
+CREATE TABLE IF NOT EXISTS derived_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL,
+    patient_id TEXT NOT NULL,                  -- denormalized for query speed
+    source_id TEXT NOT NULL,                   -- e.g. 'lab-doc-42-glucose'
+    schema_kind TEXT NOT NULL,                 -- 'lab_observation' | 'intake_field'
+    payload_json TEXT NOT NULL,
+    confidence REAL,
+    page_number INTEGER,
+    bbox_json TEXT,                            -- JSON {x0,y0,x1,y1} or NULL
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_derived_obs_patient ON derived_observations(patient_id);
+CREATE INDEX IF NOT EXISTS idx_derived_obs_doc ON derived_observations(document_id);
+CREATE INDEX IF NOT EXISTS idx_derived_obs_source_id ON derived_observations(source_id);
 """
 
 
