@@ -34,15 +34,21 @@ function clearResetTokenFromUrl(): void {
 }
 
 // Build the history payload the server expects from the visible
-// turns. Skips the in-flight turn (it has no result yet) and skips
-// turns whose result was an error. Caps to the last MAX_CLIENT_HISTORY.
+// turns. Skips the in-flight turn (it has no result yet), turns
+// whose result was an error, and any turn whose question/response is
+// blank — server-side ChatTurn.content has minLength=1 and an empty
+// string would 422 the entire request. Caps to the last
+// MAX_CLIENT_HISTORY entries.
 function deriveHistoryFromTurns(turns: Turn[]): ChatTurn[] {
   const flat: ChatTurn[] = []
   for (const t of turns) {
     if (t.loading) continue
     if (!t.result) continue
-    flat.push({ role: 'user', content: t.question })
-    flat.push({ role: 'assistant', content: t.result.response })
+    const question = t.question.trim()
+    const answer = t.result.response.trim()
+    if (!question || !answer) continue
+    flat.push({ role: 'user', content: question })
+    flat.push({ role: 'assistant', content: answer })
   }
   return flat.slice(-MAX_CLIENT_HISTORY)
 }
