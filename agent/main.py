@@ -858,16 +858,24 @@ def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
-# Sample lab PDFs served from /samples/lab_pdfs/* so graders can
-# download a synthetic-data PDF directly from the deployed app
-# instead of cloning the repo. Mounted BEFORE the catch-all SPA mount.
-# These files are NEVER PHI — see samples/lab_pdfs/README.md.
-_SAMPLES_DIR = Path(__file__).parent.parent / "samples" / "lab_pdfs"
-if _SAMPLES_DIR.is_dir():
+# Sample PDFs served at /samples/{lab_pdfs,intake_forms}/* so graders
+# can pull synthetic-data files straight from the deployed app rather
+# than cloning the repo. Mounted BEFORE the catch-all SPA mount.
+# Both directories carry only synthetic data — see their READMEs.
+_SAMPLES_LAB_DIR = Path(__file__).parent.parent / "samples" / "lab_pdfs"
+if _SAMPLES_LAB_DIR.is_dir():
     app.mount(
         "/samples/lab_pdfs",
-        StaticFiles(directory=str(_SAMPLES_DIR)),
-        name="sample_pdfs",
+        StaticFiles(directory=str(_SAMPLES_LAB_DIR)),
+        name="sample_lab_pdfs",
+    )
+
+_SAMPLES_INTAKE_DIR = Path(__file__).parent.parent / "samples" / "intake_forms"
+if _SAMPLES_INTAKE_DIR.is_dir():
+    app.mount(
+        "/samples/intake_forms",
+        StaticFiles(directory=str(_SAMPLES_INTAKE_DIR)),
+        name="sample_intake_forms",
     )
 
 # Static UI mounted last so /auth/*, /chat, /documents, and /samples
