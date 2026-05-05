@@ -190,7 +190,36 @@ main {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 24px;
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow);
+  position: relative;
+  transition: box-shadow 160ms ease, border-color 160ms ease;
+}
+
+/* Subtle left accent stripe — gives each workspace card a clearer
+   anchor without changing layout width. Stripe is the accent color
+   at low opacity so it reads as "this is its own module" not as a
+   loud divider. */
+.workspace .card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 16px;
+  bottom: 16px;
+  width: 3px;
+  background: var(--accent);
+  border-radius: 0 2px 2px 0;
+  opacity: 0.55;
+}
+
+/* Briefing card gets a stronger stripe — it's the primary content. */
+.workspace .briefing-card::before {
+  opacity: 0.95;
+}
+
+.workspace .card:hover {
+  box-shadow:
+    0 1px 3px rgba(15, 23, 42, 0.08),
+    0 8px 24px rgba(15, 23, 42, 0.06);
 }
 
 /* Form */
@@ -219,9 +248,9 @@ main {
 
 label {
   display: block;
-  font-weight: 600;
+  font-weight: 700;
   font-size: 13px;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   margin-bottom: 8px;
   letter-spacing: 0.01em;
 }
@@ -305,22 +334,24 @@ input[type='email']:disabled {
 }
 
 .example {
-  padding: 7px 14px;
+  padding: 8px 16px;
   background: var(--accent-soft);
-  border: 1px solid #dbeafe;
+  border: 1px solid #bfdbfe;
   border-radius: 999px;
   font-size: 13px;
   color: #1d4ed8;
-  font-weight: 500;
+  font-weight: 600;
   transition:
     background 120ms ease,
     border-color 120ms ease,
+    box-shadow 120ms ease,
     transform 80ms ease;
 }
 
 .example:hover:not(:disabled) {
   background: #dbeafe;
-  border-color: #bfdbfe;
+  border-color: var(--accent);
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.12);
 }
 
 .example:active:not(:disabled) {
@@ -341,16 +372,19 @@ input[type='email']:disabled {
 }
 
 button.primary {
-  padding: 11px 22px;
+  padding: 12px 24px;
   background: var(--accent);
   color: #fff;
   border: 1px solid var(--accent);
   border-radius: var(--radius);
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.22);
   transition:
     background 120ms ease,
     border-color 120ms ease,
+    box-shadow 160ms ease,
     transform 80ms ease;
   min-height: 44px;
 }
@@ -358,10 +392,12 @@ button.primary {
 button.primary:hover:not(:disabled) {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.32);
 }
 
 button.primary:active:not(:disabled) {
   transform: translateY(1px);
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.22);
 }
 
 button.primary:disabled {
@@ -543,15 +579,17 @@ button.primary:disabled {
   white-space: pre-wrap;
 }
 
-/* Shared card header used by all four workspace cards. */
+/* Shared card header used by all four workspace cards. The thicker
+   bottom border + slightly more vertical breathing room makes the
+   "this is the title of this section" boundary read at a glance. */
 .card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid var(--border);
 }
 
 .card-meta {
@@ -560,31 +598,37 @@ button.primary:disabled {
   gap: 8px;
 }
 
-/* Compact card titles for the right-column meta cards. The login
-   card keeps its larger .card-title. */
+/* Compact card titles for the right-column meta cards. Promoted from
+   12px secondary-grey to 13px primary-text so each card's purpose
+   reads from across the room. The uppercase + letter-spacing keeps
+   them stylistically distinct from body content. */
 .workspace .card-title.compact {
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--text-secondary);
-}
-
-.workspace .card-title.compact .count {
-  margin-left: 6px;
-  font-size: 11px;
-  color: var(--text-muted);
-  font-weight: 500;
-}
-
-/* Briefing card title stays slightly larger so it reads as the page
-   focus. */
-.briefing-card .card-title {
   font-size: 13px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.07em;
+  color: var(--text-primary);
+}
+
+.workspace .card-title.compact .count {
+  margin-left: 8px;
+  font-size: 12px;
   color: var(--text-secondary);
+  font-weight: 600;
+  background: var(--bg-page);
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+/* Briefing card title stays slightly larger so it reads as the page
+   focus. Uses primary text color so it pops against the page chrome. */
+.briefing-card .card-title {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-primary);
   margin: 0;
 }
 
@@ -1104,17 +1148,20 @@ button.ghost:disabled {
 }
 
 .btn-link {
-  background: none;
-  border: none;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
   color: var(--accent);
   cursor: pointer;
-  font-size: 0.9rem;
-  padding: 4px 8px;
-  font-weight: 500;
+  font-size: 0.85rem;
+  padding: 6px 14px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  transition: background 120ms ease, color 120ms ease;
 }
 .btn-link:hover:not(:disabled) {
-  color: var(--accent-hover);
-  text-decoration: underline;
+  background: var(--accent);
+  color: #ffffff;
+  text-decoration: none;
 }
 .btn-link:disabled {
   opacity: 0.6;
@@ -1135,6 +1182,11 @@ button.ghost:disabled {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   overflow: hidden;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.document-row:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-sm);
 }
 
 .document-row-button {
@@ -1145,11 +1197,11 @@ button.ghost:disabled {
   cursor: pointer;
   display: grid;
   grid-template-columns: 1fr auto auto;
-  gap: 8px;
+  gap: 12px;
   align-items: center;
-  padding: 10px 12px;
+  padding: 12px 14px;
   text-align: left;
-  font-size: 0.85rem;
+  font-size: 0.9rem;
 }
 .document-row-button:hover {
   background: var(--accent-soft);
