@@ -20,6 +20,37 @@ export function DocumentUploader({ patientId, onUploaded, onClose }: Props) {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [loadingSample, setLoadingSample] = useState(false)
+
+  // Pull the synthetic sample PDF for the current patient into the
+  // form's File state so the grader can upload-without-download.
+  // Served by `agent/main.py` from `samples/lab_pdfs/`. Falls back
+  // gracefully if the patient has no checked-in sample.
+  async function loadSample() {
+    setLoadingSample(true)
+    setError(null)
+    try {
+      const url = `/samples/lab_pdfs/${patientId}_lab_report.pdf`
+      const res = await fetch(url, { credentials: 'include' })
+      if (!res.ok) {
+        setError(
+          `No sample PDF on file for ${patientId} (HTTP ${res.status}).`,
+        )
+        return
+      }
+      const blob = await res.blob()
+      const filename = `${patientId}_lab_report.pdf`
+      setFile(new File([blob], filename, { type: 'application/pdf' }))
+      setDocType('lab_pdf')
+    } catch (err) {
+      setError(
+        'Could not load sample: ' +
+          (err instanceof Error ? err.message : String(err)),
+      )
+    } finally {
+      setLoadingSample(false)
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -69,6 +100,24 @@ export function DocumentUploader({ patientId, onUploaded, onClose }: Props) {
         </header>
 
         <form onSubmit={submit} className="modal-body">
+          <div className="form-row sample-row">
+            <span className="form-label">Don&apos;t have a file handy?</span>
+            <button
+              type="button"
+              className="btn-link"
+              onClick={loadSample}
+              disabled={loadingSample || submitting}
+            >
+              {loadingSample
+                ? 'Loading sample…'
+                : `Use synthetic sample for ${patientId}`}
+            </button>
+            <span className="form-hint">
+              Loads a checked-in lab PDF for this patient. Synthetic
+              data, no PHI.
+            </span>
+          </div>
+
           <label className="form-row">
             <span className="form-label">Document type</span>
             <select
@@ -94,6 +143,7 @@ export function DocumentUploader({ patientId, onUploaded, onClose }: Props) {
               disabled={submitting}
             />
             <span className="form-hint">
+              {file ? `Selected: ${file.name}` : 'No file chosen yet.'}{' '}
               {docType === 'lab_pdf'
                 ? 'PDF only. Max 10 MB.'
                 : 'PDF or image (JPEG/PNG/HEIC). Max 10 MB.'}

@@ -858,7 +858,20 @@ def _client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
 
 
-# Static UI mounted last so /auth/* and /chat take precedence.
+# Sample lab PDFs served from /samples/lab_pdfs/* so graders can
+# download a synthetic-data PDF directly from the deployed app
+# instead of cloning the repo. Mounted BEFORE the catch-all SPA mount.
+# These files are NEVER PHI — see samples/lab_pdfs/README.md.
+_SAMPLES_DIR = Path(__file__).parent.parent / "samples" / "lab_pdfs"
+if _SAMPLES_DIR.is_dir():
+    app.mount(
+        "/samples/lab_pdfs",
+        StaticFiles(directory=str(_SAMPLES_DIR)),
+        name="sample_pdfs",
+    )
+
+# Static UI mounted last so /auth/*, /chat, /documents, and /samples
+# take precedence.
 _STATIC_DIR = Path(__file__).parent / "static"
 if _STATIC_DIR.is_dir():
     app.mount("/", StaticFiles(directory=str(_STATIC_DIR), html=True), name="ui")
