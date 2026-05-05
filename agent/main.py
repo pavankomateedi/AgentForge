@@ -719,6 +719,106 @@ async def upload_document(
     )
 
 
+@app.get("/documents/list")
+async def list_documents(
+    patient_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """List all uploaded documents for a patient. Caller must be assigned
+    to the patient (same RBAC as /chat). Returns metadata only — the
+    blob is fetched separately via /documents/{id}/blob."""
+    if _config is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    if not rbac.is_assigned(
+        _config.database_url, user_id=current_user.id, patient_id=patient_id
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Not assigned to patient {patient_id!r}",
+        )
+    docs = doc_storage.list_for_patient(_config.database_url, patient_id)
+    return {
+        "patient_id": patient_id,
+        "documents": [
+            {
+                "id": d.id,
+                "doc_type": d.doc_type,
+                "content_type": d.content_type,
+                "uploaded_at": d.uploaded_at.isoformat(),
+                "extraction_status": d.extraction_status,
+                "extraction_error": d.extraction_error,
+                "uploaded_by_user_id": d.uploaded_by_user_id,
+                "file_hash": d.file_hash[:16] + "...",  # truncated for display
+            }
+            for d in docs
+        ],
+    }
+
+
+@app.get("/documents/{document_id}/blob")
+async def get_document_blob(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    """Stream the raw document bytes back. Caller must be assigned to
+    the document's patient. Used by the UI source-detail panel to
+    render the PDF in an embed/iframe."""
+    if _config is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    metadata = doc_storage.get_metadata(_config.database_url, document_id)
+    if metadata is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not rbac.is_assigned(
+        _config.database_url,
+        user_id=current_user.id,
+        patient_id=metadata.patient_id,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Not assigned to patient {metadata.patient_id!r}",
+        )
+    blob_pair = doc_storage.get_blob(_config.database_url, document_id)
+    if blob_pair is None:
+        raise HTTPException(status_code=404, detail="Document blob missing")
+    blob, content_type = blob_pair
+    from fastapi.responses import Response
+
+    return Response(content=blob, media_type=content_type)
+
+
+@app.get("/documents/{document_id}/derived")
+async def get_document_derived(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return the structured extracted observations for a document.
+    Caller must be assigned to the patient. Used by the UI to render
+    the schema-validated facts panel."""
+    if _config is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    metadata = doc_storage.get_metadata(_config.database_url, document_id)
+    if metadata is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not rbac.is_assigned(
+        _config.database_url,
+        user_id=current_user.id,
+        patient_id=metadata.patient_id,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Not assigned to patient {metadata.patient_id!r}",
+        )
+    rows = doc_storage.list_derived_for_patient(
+        _config.database_url, metadata.patient_id
+    )
+    return {
+        "document_id": document_id,
+        "extraction_status": metadata.extraction_status,
+        "extraction_error": metadata.extraction_error,
+        "rows": [r for r in rows if r["document_id"] == document_id],
+    }
+
+
 def _schedule_extraction(stored: doc_storage.StoredDocument) -> None:
     """Fire-and-forget background extraction. No-op when the upload was
     a dedup hit (the original upload already scheduled extraction) or
