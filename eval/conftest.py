@@ -81,6 +81,22 @@ def _wipe_db_each_test() -> Iterator[None]:
     yield
 
 
+@pytest.fixture(autouse=True)
+def _no_op_extraction_scheduler(monkeypatch):
+    """Default behavior in tests: don't kick off a background extraction
+    when /documents/upload returns. The lifespan already wired _client
+    to a fake-key Anthropic client, and an actual call would hit the
+    real API and fail (or time out, blocking CI). Tests of the
+    extraction pipeline opt back in by calling
+    `agent.extractors.extraction.run_extraction` directly with a
+    stubbed `call_vision_pdf`."""
+
+    def _noop(stored):  # noqa: ARG001 — signature-compatible stub
+        return None
+
+    monkeypatch.setattr(agent_main, "_schedule_extraction", _noop)
+
+
 @pytest.fixture
 def config():
     get_config.cache_clear()

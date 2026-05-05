@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -18,6 +19,7 @@ from agent import audit, auth, budget, documents as doc_storage, observability, 
 from agent.auth import ABSOLUTE_TIMEOUT_SECONDS, User, get_current_user
 from agent.config import Config, get_config
 from agent.db import connect, init_db
+from agent.extractors.extraction import run_extraction
 from agent.orchestrator import run_turn
 from agent.schemas.document import DocType, UploadAcceptedTypes, UploadResponse
 from agent.tools import TOOLS
@@ -671,10 +673,36 @@ async def upload_document(
         },
     )
 
+    _schedule_extraction(stored)
+
     return UploadResponse(
         document_id=stored.id,
         status=stored.extraction_status,
         deduplicated=stored.deduplicated,
+    )
+
+
+def _schedule_extraction(stored: doc_storage.StoredDocument) -> None:
+    """Fire-and-forget background extraction. No-op when the upload was
+    a dedup hit (the original upload already scheduled extraction) or
+    when the lifespan hasn't completed yet (`_client` / `_config` still
+    None — happens in degenerate startup paths only).
+
+    This is a module-level function so tests can monkeypatch it to a
+    no-op when they care only about the upload contract; tests of the
+    extraction pipeline call `run_extraction` directly with a stubbed
+    vision-call surface."""
+    if stored.deduplicated:
+        return
+    if _client is None or _config is None:
+        return
+    asyncio.create_task(
+        run_extraction(
+            database_url=_config.database_url,
+            document_id=stored.id,
+            anthropic_client=_client,
+            model=_config.model,
+        )
     )
 
 

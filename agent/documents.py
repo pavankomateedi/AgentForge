@@ -13,6 +13,7 @@ of erroring — keeps the UI idempotent under retries.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import sqlite3
 from dataclasses import dataclass
@@ -20,8 +21,24 @@ from datetime import datetime
 
 from agent.db import connect
 from agent.schemas.document import DocType, ExtractionStatus
+from agent.schemas.intake import IntakeForm
+from agent.schemas.lab import LabReport
 
 log = logging.getLogger(__name__)
+
+
+def _page_number_from_section(section: str | None) -> int | None:
+    """Citations carry `page_or_section` like 'page-2' or 'section-allergies'.
+    Extract the numeric page when present so derived_observations.page_number
+    is queryable. Non-page sections store NULL."""
+    if section is None:
+        return None
+    if section.startswith("page-"):
+        try:
+            return int(section[len("page-") :])
+        except ValueError:
+            return None
+    return None
 
 
 def compute_file_hash(blob: bytes) -> str:
@@ -162,6 +179,208 @@ def get_metadata(
             "SELECT * FROM documents WHERE id = ?", (document_id,)
         ).fetchone()
     return _row_to_stored(row) if row else None
+
+
+# --- Derived-observations persistence (Week 2) ---
+
+
+def _replace_derived_observations(
+    conn: sqlite3.Connection,
+    *,
+    document_id: int,
+    rows: list[tuple[str, str, str, float | None, int | None, str | None]],
+) -> None:
+    """Replace ALL derived_observations rows for a given document. Re-
+    extraction (after a prompt improvement) calls this to swap the
+    facts without touching the source blob — the document_id contract
+    stays stable, only the rows beneath it churn.
+
+    Each tuple is (patient_id, source_id, schema_kind, payload_json,
+    confidence, page_number, bbox_json). Caller is responsible for
+    serializing payload_json + bbox_json with json.dumps.
+    """
+    conn.execute(
+        "DELETE FROM derived_observations WHERE document_id = ?", (document_id,)
+    )
+    conn.executemany(
+        """INSERT INTO derived_observations
+           (document_id, patient_id, source_id, schema_kind, payload_json,
+            confidence, page_number, bbox_json)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        [(document_id, *r) for r in rows],
+    )
+
+
+def persist_lab_report(database_url: str, report: LabReport) -> int:
+    """Write one derived_observations row per LabValue. Replaces any
+    prior rows for this document_id (re-extraction is idempotent).
+    Returns the count of inserted rows."""
+    rows: list[tuple] = []
+    for idx, value in enumerate(report.values):
+        slug = (
+            value.test_name.lower()
+            .replace(" ", "-")
+            .replace("/", "-")
+        )
+        source_id = f"lab-doc-{report.document_id}-{slug}-{idx}"
+        bbox_json = (
+            json.dumps(value.citation.bbox.model_dump())
+            if value.citation.bbox is not None
+            else None
+        )
+        rows.append(
+            (
+                report.patient_id,
+                source_id,
+                "lab_observation",
+                json.dumps(value.model_dump(mode="json")),
+                value.confidence,
+                _page_number_from_section(value.citation.page_or_section),
+                bbox_json,
+            )
+        )
+
+    with connect(database_url) as conn:
+        _replace_derived_observations(
+            conn, document_id=report.document_id, rows=rows
+        )
+        conn.commit()
+    log.info(
+        "documents: persisted %d lab values for document_id=%d",
+        len(rows), report.document_id,
+    )
+    return len(rows)
+
+
+def persist_intake_form(database_url: str, form: IntakeForm) -> int:
+    """Write derived_observations rows for the citable parts of the
+    form: demographics (one row), chief_concern (one row if present),
+    one row per medication, one row per allergy, family_history (one
+    row if non-empty). Returns total inserted count."""
+    rows: list[tuple] = []
+
+    rows.append(
+        (
+            form.patient_id,
+            f"intake-doc-{form.document_id}-demographics",
+            "intake_demographics",
+            json.dumps(form.demographics.model_dump(mode="json")),
+            None,
+            _page_number_from_section(
+                form.demographics.name_citation.page_or_section
+            ),
+            (
+                json.dumps(form.demographics.name_citation.bbox.model_dump())
+                if form.demographics.name_citation.bbox is not None
+                else None
+            ),
+        )
+    )
+
+    if form.chief_concern is not None and form.chief_concern_citation is not None:
+        cc = form.chief_concern_citation
+        rows.append(
+            (
+                form.patient_id,
+                f"intake-doc-{form.document_id}-chief-concern",
+                "intake_chief_concern",
+                json.dumps({"chief_concern": form.chief_concern}),
+                None,
+                _page_number_from_section(cc.page_or_section),
+                json.dumps(cc.bbox.model_dump()) if cc.bbox is not None else None,
+            )
+        )
+
+    for idx, med in enumerate(form.current_medications):
+        rows.append(
+            (
+                form.patient_id,
+                f"intake-doc-{form.document_id}-med-{idx}",
+                "intake_medication",
+                json.dumps(med.model_dump(mode="json")),
+                None,
+                _page_number_from_section(med.citation.page_or_section),
+                (
+                    json.dumps(med.citation.bbox.model_dump())
+                    if med.citation.bbox is not None
+                    else None
+                ),
+            )
+        )
+
+    for idx, allergy in enumerate(form.allergies):
+        rows.append(
+            (
+                form.patient_id,
+                f"intake-doc-{form.document_id}-allergy-{idx}",
+                "intake_allergy",
+                json.dumps(allergy.model_dump(mode="json")),
+                None,
+                _page_number_from_section(allergy.citation.page_or_section),
+                (
+                    json.dumps(allergy.citation.bbox.model_dump())
+                    if allergy.citation.bbox is not None
+                    else None
+                ),
+            )
+        )
+
+    if form.family_history:
+        rows.append(
+            (
+                form.patient_id,
+                f"intake-doc-{form.document_id}-family-history",
+                "intake_family_history",
+                json.dumps({"items": form.family_history}),
+                None,
+                None,
+                None,
+            )
+        )
+
+    with connect(database_url) as conn:
+        _replace_derived_observations(
+            conn, document_id=form.document_id, rows=rows
+        )
+        conn.commit()
+    log.info(
+        "documents: persisted %d intake rows for document_id=%d",
+        len(rows), form.document_id,
+    )
+    return len(rows)
+
+
+def list_derived_for_patient(
+    database_url: str, patient_id: str
+) -> list[dict]:
+    """Read all extracted facts for a patient, newest-first by document.
+    Returned dicts are the row values (payload_json deserialized).
+    Used by the evidence_retriever worker to fold extracted facts into
+    the retrieval bundle."""
+    with connect(database_url) as conn:
+        rows = conn.execute(
+            "SELECT id, document_id, source_id, schema_kind, payload_json, "
+            "confidence, page_number, bbox_json, created_at "
+            "FROM derived_observations "
+            "WHERE patient_id = ? ORDER BY document_id DESC, id ASC",
+            (patient_id,),
+        ).fetchall()
+    out: list[dict] = []
+    for r in rows:
+        out.append(
+            {
+                "id": r["id"],
+                "document_id": r["document_id"],
+                "source_id": r["source_id"],
+                "schema_kind": r["schema_kind"],
+                "payload": json.loads(r["payload_json"]),
+                "confidence": r["confidence"],
+                "page_number": r["page_number"],
+                "bbox": json.loads(r["bbox_json"]) if r["bbox_json"] else None,
+                "created_at": r["created_at"],
+            }
+        )
+    return out
 
 
 def list_for_patient(
