@@ -124,6 +124,99 @@ DEMO_PATIENTS: dict[str, dict] = {
                 "flag": "normal",
             },
         ],
+        # Per-test trend used by get_lab_history. Newest first; the
+        # most-recent entry equals the corresponding row in recent_labs.
+        # Source ids are unique per (patient, test, date) so each
+        # historical value is independently citable by the verifier.
+        "lab_history": {
+            "a1c": [
+                {
+                    "source_id": "lab-001-a1c-2026-03",
+                    "name": "Hemoglobin A1c",
+                    "value": 7.4,
+                    "unit": "%",
+                    "reference_range": "<7.0",
+                    "date": "2026-03-15",
+                    "flag": "high",
+                },
+                {
+                    "source_id": "lab-001-a1c-2025-09",
+                    "name": "Hemoglobin A1c",
+                    "value": 6.9,
+                    "unit": "%",
+                    "reference_range": "<7.0",
+                    "date": "2025-09-12",
+                    "flag": "normal",
+                },
+                {
+                    "source_id": "lab-001-a1c-2025-03",
+                    "name": "Hemoglobin A1c",
+                    "value": 6.7,
+                    "unit": "%",
+                    "reference_range": "<7.0",
+                    "date": "2025-03-08",
+                    "flag": "normal",
+                },
+            ],
+            "ldl": [
+                {
+                    "source_id": "lab-001-ldl-2026-03",
+                    "name": "LDL cholesterol",
+                    "value": 92,
+                    "unit": "mg/dL",
+                    "reference_range": "<100",
+                    "date": "2026-03-15",
+                    "flag": "normal",
+                },
+                {
+                    "source_id": "lab-001-ldl-2025-09",
+                    "name": "LDL cholesterol",
+                    "value": 88,
+                    "unit": "mg/dL",
+                    "reference_range": "<100",
+                    "date": "2025-09-12",
+                    "flag": "normal",
+                },
+                {
+                    "source_id": "lab-001-ldl-2025-03",
+                    "name": "LDL cholesterol",
+                    "value": 110,
+                    "unit": "mg/dL",
+                    "reference_range": "<100",
+                    "date": "2025-03-08",
+                    "flag": "high",
+                },
+            ],
+            "creatinine": [
+                {
+                    "source_id": "lab-001-cr-2026-03",
+                    "name": "Creatinine",
+                    "value": 1.0,
+                    "unit": "mg/dL",
+                    "reference_range": "0.6-1.2",
+                    "date": "2026-03-15",
+                    "flag": "normal",
+                },
+                {
+                    "source_id": "lab-001-cr-2025-09",
+                    "name": "Creatinine",
+                    "value": 1.0,
+                    "unit": "mg/dL",
+                    "reference_range": "0.6-1.2",
+                    "date": "2025-09-12",
+                    "flag": "normal",
+                },
+                {
+                    "source_id": "lab-001-cr-2025-03",
+                    "name": "Creatinine",
+                    "value": 0.9,
+                    "unit": "mg/dL",
+                    "reference_range": "0.6-1.2",
+                    "date": "2025-03-08",
+                    "flag": "normal",
+                },
+            ],
+        },
         # Newest first. Three encounters show the A1c drifting from
         # 6.7 → 6.9 → 7.4, perfect for UC-6 "is this trend concerning?"
         # follow-ups paired with the lab tool.
@@ -303,6 +396,97 @@ DEMO_PATIENTS: dict[str, dict] = {
                 "flag": "high",
             },
         ],
+        # Worsening trend across all three measures — A1c, creatinine,
+        # LDL all rising. The classic "is this concerning?" pattern.
+        "lab_history": {
+            "a1c": [
+                {
+                    "source_id": "lab-003-a1c-2026-04",
+                    "name": "Hemoglobin A1c",
+                    "value": 10.5,
+                    "unit": "%",
+                    "reference_range": "<7.0",
+                    "date": "2026-04-12",
+                    "flag": "high",
+                },
+                {
+                    "source_id": "lab-003-a1c-2025-10",
+                    "name": "Hemoglobin A1c",
+                    "value": 9.2,
+                    "unit": "%",
+                    "reference_range": "<7.0",
+                    "date": "2025-10-04",
+                    "flag": "high",
+                },
+                {
+                    "source_id": "lab-003-a1c-2025-04",
+                    "name": "Hemoglobin A1c",
+                    "value": 8.5,
+                    "unit": "%",
+                    "reference_range": "<7.0",
+                    "date": "2025-04-18",
+                    "flag": "high",
+                },
+            ],
+            "creatinine": [
+                {
+                    "source_id": "lab-003-cr-2026-04",
+                    "name": "Creatinine",
+                    "value": 1.8,
+                    "unit": "mg/dL",
+                    "reference_range": "0.6-1.2",
+                    "date": "2026-04-12",
+                    "flag": "high",
+                },
+                {
+                    "source_id": "lab-003-cr-2025-10",
+                    "name": "Creatinine",
+                    "value": 1.5,
+                    "unit": "mg/dL",
+                    "reference_range": "0.6-1.2",
+                    "date": "2025-10-04",
+                    "flag": "high",
+                },
+                {
+                    "source_id": "lab-003-cr-2025-04",
+                    "name": "Creatinine",
+                    "value": 1.3,
+                    "unit": "mg/dL",
+                    "reference_range": "0.6-1.2",
+                    "date": "2025-04-18",
+                    "flag": "high",
+                },
+            ],
+            "ldl": [
+                {
+                    "source_id": "lab-003-ldl-2026-04",
+                    "name": "LDL cholesterol",
+                    "value": 145,
+                    "unit": "mg/dL",
+                    "reference_range": "<100",
+                    "date": "2026-04-12",
+                    "flag": "high",
+                },
+                {
+                    "source_id": "lab-003-ldl-2025-10",
+                    "name": "LDL cholesterol",
+                    "value": 140,
+                    "unit": "mg/dL",
+                    "reference_range": "<100",
+                    "date": "2025-10-04",
+                    "flag": "high",
+                },
+                {
+                    "source_id": "lab-003-ldl-2025-04",
+                    "name": "LDL cholesterol",
+                    "value": 138,
+                    "unit": "mg/dL",
+                    "reference_range": "<100",
+                    "date": "2025-04-18",
+                    "flag": "high",
+                },
+            ],
+        },
         # Trajectory: A1c 8.5 → 9.2 → 10.5 and creatinine 1.3 → 1.5 → 1.8
         # over a year. Demonstrates the trend question with a clear
         # worsening signature. Most recent encounter calls out the
@@ -410,6 +594,59 @@ DEMO_PATIENTS: dict[str, dict] = {
                 "flag": "normal",
             },
         ],
+        # Stable creatinine pre/post NSAID start — the trend itself is
+        # the answer to "is the NSAID hurting her kidneys yet?".
+        "lab_history": {
+            "creatinine": [
+                {
+                    "source_id": "lab-004-cr-2026-04",
+                    "name": "Creatinine",
+                    "value": 1.0,
+                    "unit": "mg/dL",
+                    "reference_range": "0.6-1.2",
+                    "date": "2026-04-08",
+                    "flag": "normal",
+                },
+                {
+                    "source_id": "lab-004-cr-2025-08",
+                    "name": "Creatinine",
+                    "value": 0.9,
+                    "unit": "mg/dL",
+                    "reference_range": "0.6-1.2",
+                    "date": "2025-08-15",
+                    "flag": "normal",
+                },
+                {
+                    "source_id": "lab-004-cr-2025-02",
+                    "name": "Creatinine",
+                    "value": 0.9,
+                    "unit": "mg/dL",
+                    "reference_range": "0.6-1.2",
+                    "date": "2025-02-22",
+                    "flag": "normal",
+                },
+            ],
+            "ldl": [
+                {
+                    "source_id": "lab-004-ldl-2026-04",
+                    "name": "LDL cholesterol",
+                    "value": 95,
+                    "unit": "mg/dL",
+                    "reference_range": "<100",
+                    "date": "2026-04-08",
+                    "flag": "normal",
+                },
+                {
+                    "source_id": "lab-004-ldl-2025-02",
+                    "name": "LDL cholesterol",
+                    "value": 102,
+                    "unit": "mg/dL",
+                    "reference_range": "<100",
+                    "date": "2025-02-22",
+                    "flag": "high",
+                },
+            ],
+        },
         # Mid-2025 encounter is when the NSAID was prescribed — gives
         # the agent a "what changed since last visit" answer with a
         # specific medication-onset event and an interaction that the
@@ -499,6 +736,50 @@ DEMO_PATIENTS: dict[str, dict] = {
                 "flag": "normal",
             },
         ],
+        # Two normal readings a year apart — the "nothing has changed"
+        # baseline that makes the trend tools work for a stable patient.
+        "lab_history": {
+            "creatinine": [
+                {
+                    "source_id": "lab-005-cr-2026-03",
+                    "name": "Creatinine",
+                    "value": 0.9,
+                    "unit": "mg/dL",
+                    "reference_range": "0.6-1.2",
+                    "date": "2026-03-22",
+                    "flag": "normal",
+                },
+                {
+                    "source_id": "lab-005-cr-2025-04",
+                    "name": "Creatinine",
+                    "value": 0.9,
+                    "unit": "mg/dL",
+                    "reference_range": "0.6-1.2",
+                    "date": "2025-04-15",
+                    "flag": "normal",
+                },
+            ],
+            "ldl": [
+                {
+                    "source_id": "lab-005-ldl-2026-03",
+                    "name": "LDL cholesterol",
+                    "value": 88,
+                    "unit": "mg/dL",
+                    "reference_range": "<100",
+                    "date": "2026-03-22",
+                    "flag": "normal",
+                },
+                {
+                    "source_id": "lab-005-ldl-2025-04",
+                    "name": "LDL cholesterol",
+                    "value": 90,
+                    "unit": "mg/dL",
+                    "reference_range": "<100",
+                    "date": "2025-04-15",
+                    "flag": "normal",
+                },
+            ],
+        },
         # Two clean encounters a year apart — the "stable patient,
         # nothing changed" headline answer for UC-2.
         "recent_encounters": [

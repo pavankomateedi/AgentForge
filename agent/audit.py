@@ -37,6 +37,18 @@ class AuditEvent:
     PATIENT_ASSIGNED = "patient_assigned"
     PATIENT_UNASSIGNED = "patient_unassigned"
     BUDGET_EXCEEDED = "budget_exceeded"
+    # Week 2 multimodal ingestion. Details payload carries only
+    # structural fields (document_id, doc_type, file_hash, latency_ms,
+    # extraction_status). PHI-bearing extracted text is NEVER written
+    # to the audit log — see HIPAA_COMPLIANCE.md and W2_ARCHITECTURE.md
+    # §9.
+    DOCUMENT_UPLOADED = "document_uploaded"
+    DOCUMENT_UPLOAD_REFUSED = "document_upload_refused"
+    DOCUMENT_EXTRACTION_STARTED = "document_extraction_started"
+    DOCUMENT_EXTRACTION_COMPLETED = "document_extraction_completed"
+    DOCUMENT_EXTRACTION_FAILED = "document_extraction_failed"
+    EVIDENCE_RETRIEVAL = "evidence_retrieval"
+    SUPERVISOR_ROUTING_DECISION = "supervisor_routing_decision"
 
 
 def record(

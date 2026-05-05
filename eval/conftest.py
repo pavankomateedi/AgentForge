@@ -60,7 +60,10 @@ def _wipe_db_each_test() -> Iterator[None]:
     db.init_db(database_url)
     with db.connect(database_url) as conn:
         # Order matters: child tables before users (FK target).
+        # derived_observations FK -> documents FK -> users.
         for table in (
+            "derived_observations",
+            "documents",
             "daily_token_usage",
             "patient_assignments",
             "password_reset_tokens",
@@ -71,10 +74,27 @@ def _wipe_db_each_test() -> Iterator[None]:
         conn.execute(
             "DELETE FROM sqlite_sequence WHERE name IN "
             "('users','audit_log','password_reset_tokens',"
-            "'patient_assignments','daily_token_usage')"
+            "'patient_assignments','daily_token_usage',"
+            "'documents','derived_observations')"
         )
         conn.commit()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _no_op_extraction_scheduler(monkeypatch):
+    """Default behavior in tests: don't kick off a background extraction
+    when /documents/upload returns. The lifespan already wired _client
+    to a fake-key Anthropic client, and an actual call would hit the
+    real API and fail (or time out, blocking CI). Tests of the
+    extraction pipeline opt back in by calling
+    `agent.extractors.extraction.run_extraction` directly with a
+    stubbed `call_vision_pdf`."""
+
+    def _noop(stored):  # noqa: ARG001 — signature-compatible stub
+        return None
+
+    monkeypatch.setattr(agent_main, "_schedule_extraction", _noop)
 
 
 @pytest.fixture
@@ -206,6 +226,11 @@ def stub_run_turn(monkeypatch) -> dict[str, Any]:
         )
 
     monkeypatch.setattr(agent_main, "run_turn", fake_run_turn)
+    # The outer (multi-agent) graph also imports run_turn into its own
+    # namespace; patching only `agent.main` would leave that path live.
+    from agent.agents import outer_graph as outer_graph_mod
+
+    monkeypatch.setattr(outer_graph_mod, "run_turn", fake_run_turn)
     return state
 
 

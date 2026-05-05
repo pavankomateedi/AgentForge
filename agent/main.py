@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -9,16 +10,19 @@ from pathlib import Path
 from typing import Literal
 
 import anthropic
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from starlette.middleware.sessions import SessionMiddleware
 
-from agent import audit, auth, budget, observability, rbac
+from agent import audit, auth, budget, documents as doc_storage, observability, rbac
 from agent.auth import ABSOLUTE_TIMEOUT_SECONDS, User, get_current_user
 from agent.config import Config, get_config
 from agent.db import connect, init_db
+from agent.agents.outer_graph import run_multi_agent_turn
+from agent.extractors.extraction import run_extraction
 from agent.orchestrator import run_turn
+from agent.schemas.document import DocType, UploadAcceptedTypes, UploadResponse
 from agent.tools import TOOLS
 
 
@@ -28,6 +32,12 @@ from agent.tools import TOOLS
 # Reason headroom. Server enforces; clients can send more but only the
 # tail wins.
 MAX_HISTORY_TURNS = 8
+
+# Cap on a single uploaded document size. 10 MB is enough for a typical
+# multi-page lab PDF or phone-camera intake form scan; larger files are
+# almost always a mistake (a video, an unscaled bitmap) and would push
+# the vision API into rate-limit territory at extraction time.
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 
 
 log = logging.getLogger(__name__)
@@ -349,6 +359,18 @@ class ChatRequest(BaseModel):
             f"{MAX_HISTORY_TURNS} entries."
         ),
     )
+    # Opt-in multi-agent routing (Week 2). When true, /chat goes through
+    # the supervisor + workers + answer pipeline outer graph. When
+    # false (default), the existing Week 1 11-node pipeline runs
+    # directly. Default-false preserves backward compatibility for the
+    # 250+ tests that pin Week 1 behavior; the UI sets this true.
+    multi_agent: bool = Field(
+        default=False,
+        description=(
+            "Route via supervisor + 2 workers (intake_extractor, "
+            "evidence_retriever) + the existing answer pipeline."
+        ),
+    )
 
 
 class ChatResponse(BaseModel):
@@ -445,16 +467,31 @@ async def chat(
         for h in req.history[-MAX_HISTORY_TURNS:]
     ]
 
-    result = await run_turn(
-        client=_client,
-        model=_config.model,
-        patient_id=req.patient_id,
-        user_message=req.message,
-        user_id=str(current_user.id),
-        user_role=current_user.role,
-        available_tools=available_tools,
-        history=history_payload,
-    )
+    routing_decision = None
+    multi_agent_timings: dict[str, int] = {}
+    if req.multi_agent:
+        result, routing_decision, multi_agent_timings = await run_multi_agent_turn(
+            client=_client,
+            model=_config.model,
+            database_url=_config.database_url,
+            patient_id=req.patient_id,
+            user_message=req.message,
+            user_id=str(current_user.id),
+            user_role=current_user.role,
+            available_tools=available_tools,
+            history=history_payload,
+        )
+    else:
+        result = await run_turn(
+            client=_client,
+            model=_config.model,
+            patient_id=req.patient_id,
+            user_message=req.message,
+            user_id=str(current_user.id),
+            user_role=current_user.role,
+            available_tools=available_tools,
+            history=history_payload,
+        )
 
     # ---- Resident watermark ----
     # Residents see physician-equivalent tools but every response is
@@ -525,6 +562,14 @@ async def chat(
                     }
                     for mm in verification.value_mismatches
                 ],
+                "name_mismatches": [
+                    {
+                        "source_id": nm.source_id,
+                        "record_name": nm.record_name,
+                        "cited_drug": nm.cited_drug,
+                    }
+                    for nm in verification.name_mismatches
+                ],
             }
             if verification
             else None
@@ -547,10 +592,262 @@ async def chat(
             "plan": result.trace.plan_usage,
             "reason": result.trace.reason_usage,
         },
+        "multi_agent": (
+            {
+                "workers_invoked": routing_decision.workers_to_invoke,
+                "routing_reason": routing_decision.reason,
+                "stage_timings_ms": multi_agent_timings,
+            }
+            if routing_decision is not None
+            else None
+        ),
     }
 
     return ChatResponse(
         response=result.response, verified=result.verified, trace=trace
+    )
+
+
+@app.post("/documents/upload", response_model=UploadResponse)
+async def upload_document(
+    request: Request,
+    patient_id: str = Form(..., min_length=1, max_length=128),
+    doc_type: str = Form(...),
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+) -> UploadResponse:
+    """Accept a clinical document (lab PDF or intake form image/PDF) for
+    a patient the caller is assigned to. Stores the blob, computes a
+    SHA-256 hash, dedupes against (patient_id, file_hash), and returns
+    a document_id. Extraction itself runs as a background task wired up
+    in the next sub-stage; this endpoint returns status='pending'.
+
+    Refusal paths (each audited as DOCUMENT_UPLOAD_REFUSED with the
+    specific reason in `details`):
+      - 400 if doc_type is not 'lab_pdf' | 'intake_form'
+      - 400 if content_type isn't allowed for the doc_type
+      - 400 if the file is empty or larger than MAX_UPLOAD_BYTES
+      - 403 if the caller isn't assigned to the patient
+    """
+    if _config is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+
+    ip = _client_ip(request)
+
+    def _refuse(status_code: int, detail: str, reason: str) -> HTTPException:
+        audit.record(
+            _config.database_url,
+            audit.AuditEvent.DOCUMENT_UPLOAD_REFUSED,
+            user_id=current_user.id,
+            ip_address=ip,
+            details={
+                "patient_id": patient_id,
+                "doc_type": doc_type,
+                "reason": reason,
+            },
+        )
+        return HTTPException(status_code=status_code, detail=detail)
+
+    if doc_type not in ("lab_pdf", "intake_form"):
+        raise _refuse(
+            400,
+            f"doc_type must be 'lab_pdf' or 'intake_form', got {doc_type!r}",
+            "invalid_doc_type",
+        )
+
+    allowed_types = UploadAcceptedTypes.for_doc_type(doc_type)
+    if file.content_type not in allowed_types:
+        raise _refuse(
+            400,
+            (
+                f"content_type {file.content_type!r} not allowed for "
+                f"doc_type={doc_type}; expected one of {allowed_types}"
+            ),
+            "invalid_content_type",
+        )
+
+    if not rbac.is_assigned(
+        _config.database_url,
+        user_id=current_user.id,
+        patient_id=patient_id,
+    ):
+        raise _refuse(
+            403,
+            (
+                f"You are not assigned to patient {patient_id!r}. "
+                f"Ask an administrator to grant access."
+            ),
+            "unassigned",
+        )
+
+    # Read with a hard cap so a malicious or runaway client can't
+    # exhaust process memory before validation kicks in.
+    blob = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(blob) == 0:
+        raise _refuse(400, "Uploaded file is empty.", "empty_file")
+    if len(blob) > MAX_UPLOAD_BYTES:
+        raise _refuse(
+            400,
+            f"Uploaded file exceeds {MAX_UPLOAD_BYTES} bytes.",
+            "too_large",
+        )
+
+    typed_doc_type: DocType = doc_type  # type: ignore[assignment]
+    stored = doc_storage.insert_document(
+        _config.database_url,
+        patient_id=patient_id,
+        doc_type=typed_doc_type,
+        file_blob=blob,
+        content_type=file.content_type,
+        uploaded_by_user_id=current_user.id,
+    )
+
+    audit.record(
+        _config.database_url,
+        audit.AuditEvent.DOCUMENT_UPLOADED,
+        user_id=current_user.id,
+        ip_address=ip,
+        details={
+            "patient_id": patient_id,
+            "doc_type": doc_type,
+            "document_id": stored.id,
+            "file_hash": stored.file_hash,
+            "file_bytes": len(blob),
+            "deduplicated": stored.deduplicated,
+            "content_type": file.content_type,
+        },
+    )
+
+    _schedule_extraction(stored)
+
+    return UploadResponse(
+        document_id=stored.id,
+        status=stored.extraction_status,
+        deduplicated=stored.deduplicated,
+    )
+
+
+@app.get("/documents/list")
+async def list_documents(
+    patient_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """List all uploaded documents for a patient. Caller must be assigned
+    to the patient (same RBAC as /chat). Returns metadata only — the
+    blob is fetched separately via /documents/{id}/blob."""
+    if _config is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    if not rbac.is_assigned(
+        _config.database_url, user_id=current_user.id, patient_id=patient_id
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Not assigned to patient {patient_id!r}",
+        )
+    docs = doc_storage.list_for_patient(_config.database_url, patient_id)
+    return {
+        "patient_id": patient_id,
+        "documents": [
+            {
+                "id": d.id,
+                "doc_type": d.doc_type,
+                "content_type": d.content_type,
+                "uploaded_at": d.uploaded_at.isoformat(),
+                "extraction_status": d.extraction_status,
+                "extraction_error": d.extraction_error,
+                "uploaded_by_user_id": d.uploaded_by_user_id,
+                "file_hash": d.file_hash[:16] + "...",  # truncated for display
+            }
+            for d in docs
+        ],
+    }
+
+
+@app.get("/documents/{document_id}/blob")
+async def get_document_blob(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+):
+    """Stream the raw document bytes back. Caller must be assigned to
+    the document's patient. Used by the UI source-detail panel to
+    render the PDF in an embed/iframe."""
+    if _config is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    metadata = doc_storage.get_metadata(_config.database_url, document_id)
+    if metadata is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not rbac.is_assigned(
+        _config.database_url,
+        user_id=current_user.id,
+        patient_id=metadata.patient_id,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Not assigned to patient {metadata.patient_id!r}",
+        )
+    blob_pair = doc_storage.get_blob(_config.database_url, document_id)
+    if blob_pair is None:
+        raise HTTPException(status_code=404, detail="Document blob missing")
+    blob, content_type = blob_pair
+    from fastapi.responses import Response
+
+    return Response(content=blob, media_type=content_type)
+
+
+@app.get("/documents/{document_id}/derived")
+async def get_document_derived(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return the structured extracted observations for a document.
+    Caller must be assigned to the patient. Used by the UI to render
+    the schema-validated facts panel."""
+    if _config is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    metadata = doc_storage.get_metadata(_config.database_url, document_id)
+    if metadata is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not rbac.is_assigned(
+        _config.database_url,
+        user_id=current_user.id,
+        patient_id=metadata.patient_id,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Not assigned to patient {metadata.patient_id!r}",
+        )
+    rows = doc_storage.list_derived_for_patient(
+        _config.database_url, metadata.patient_id
+    )
+    return {
+        "document_id": document_id,
+        "extraction_status": metadata.extraction_status,
+        "extraction_error": metadata.extraction_error,
+        "rows": [r for r in rows if r["document_id"] == document_id],
+    }
+
+
+def _schedule_extraction(stored: doc_storage.StoredDocument) -> None:
+    """Fire-and-forget background extraction. No-op when the upload was
+    a dedup hit (the original upload already scheduled extraction) or
+    when the lifespan hasn't completed yet (`_client` / `_config` still
+    None — happens in degenerate startup paths only).
+
+    This is a module-level function so tests can monkeypatch it to a
+    no-op when they care only about the upload contract; tests of the
+    extraction pipeline call `run_extraction` directly with a stubbed
+    vision-call surface."""
+    if stored.deduplicated:
+        return
+    if _client is None or _config is None:
+        return
+    asyncio.create_task(
+        run_extraction(
+            database_url=_config.database_url,
+            document_id=stored.id,
+            anthropic_client=_client,
+            model=_config.model,
+        )
     )
 
 

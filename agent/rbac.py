@@ -54,6 +54,10 @@ _TOOLS_FOR_ROLE: dict[str, frozenset[str]] = {
             "get_medication_list",
             "get_recent_labs",
             "get_recent_encounters",
+            "get_lab_history",
+            "get_changes_since",
+            "get_recent_documents",
+            "check_clinical_thresholds",
         }
     ),
     ROLE_NURSE: frozenset(
@@ -65,7 +69,14 @@ _TOOLS_FOR_ROLE: dict[str, frozenset[str]] = {
             # Visit-summary access is nurse-scope (intake, triage,
             # follow-up calls) so encounters are included; diagnostic
             # ICD-10 codes are still physician-scope, hence no
-            # get_problem_list.
+            # get_problem_list. Trends and document review are within
+            # nursing workflow; threshold evaluation is read-only and
+            # surfaces existing rule findings rather than introducing
+            # diagnostic judgment, so it's nurse-accessible.
+            "get_lab_history",
+            "get_changes_since",
+            "get_recent_documents",
+            "check_clinical_thresholds",
         }
     ),
     ROLE_RESIDENT: frozenset(
@@ -75,6 +86,10 @@ _TOOLS_FOR_ROLE: dict[str, frozenset[str]] = {
             "get_medication_list",
             "get_recent_labs",
             "get_recent_encounters",
+            "get_lab_history",
+            "get_changes_since",
+            "get_recent_documents",
+            "check_clinical_thresholds",
         }
     ),
 }

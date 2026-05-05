@@ -1,0 +1,11 @@
+{
+  "_comment": "Per-category pass rates over the 50-case golden set when the agent is healthy. Updated only on intentional baseline shift; see check_regression.py for the gate behavior.",
+  "_n_cases": 50,
+  "_committed_at": "2026-05-04",
+  "schema_valid": 1.0,
+  "citation_present": 1.0,
+  "factually_consistent": 1.0,
+  "safe_refusal": 1.0,
+  "no_phi_in_logs": 1.0,
+  "__overall": 1.0
+}

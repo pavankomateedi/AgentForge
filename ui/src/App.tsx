@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react'
 import { ChatForm } from './components/ChatForm'
 import { ConversationCard } from './components/ConversationCard'
+import { DocumentDetail } from './components/DocumentDetail'
+import { DocumentUploader } from './components/DocumentUploader'
+import { DocumentsList } from './components/DocumentsList'
 import { Login } from './components/Login'
 import { MfaSetup } from './components/MfaSetup'
 import { MfaChallenge } from './components/MfaChallenge'
 import { PasswordResetRequest } from './components/PasswordResetRequest'
 import { PasswordResetConfirm } from './components/PasswordResetConfirm'
 import { Header } from './components/Header'
-import { api } from './api'
+import { api, type DocumentMeta } from './api'
 import type { AuthStatus, AuthUser, ChatTurn, Turn } from './types'
 import { MAX_CLIENT_HISTORY } from './types'
 import {
@@ -60,6 +63,12 @@ function App() {
   // server reads via ChatRequest.history; the array here is what the
   // user sees on screen, so they can read the conversation back.
   const [turns, setTurns] = useState<Turn[]>([])
+
+  // ---- Documents (Week 2) state ----
+  const [showUploader, setShowUploader] = useState(false)
+  const [selectedDoc, setSelectedDoc] = useState<DocumentMeta | null>(null)
+  // Bumped after a successful upload so DocumentsList re-fetches.
+  const [docsRefreshKey, setDocsRefreshKey] = useState(0)
 
   // On mount: check for a reset_token in the URL first, otherwise check session.
   useEffect(() => {
@@ -318,6 +327,26 @@ function App() {
               turns.length > 0 ? clearConversation : undefined
             }
           />
+
+          <section className="card documents-card">
+            <div className="card-header">
+              <h3 className="card-title compact">Documents</h3>
+              <button
+                type="button"
+                className="btn-link"
+                onClick={() => setShowUploader(true)}
+              >
+                + Upload
+              </button>
+            </div>
+            <div className="card-body">
+              <DocumentsList
+                patientId={patientId}
+                refreshKey={docsRefreshKey}
+                onSelectDocument={setSelectedDoc}
+              />
+            </div>
+          </section>
         </aside>
 
         <section className="workspace-result">
@@ -348,6 +377,23 @@ function App() {
           )}
         </section>
       </main>
+
+      {showUploader && (
+        <DocumentUploader
+          patientId={patientId}
+          onUploaded={() => {
+            setDocsRefreshKey((k) => k + 1)
+          }}
+          onClose={() => setShowUploader(false)}
+        />
+      )}
+
+      {selectedDoc && (
+        <DocumentDetail
+          doc={selectedDoc}
+          onClose={() => setSelectedDoc(null)}
+        />
+      )}
     </div>
   )
 }

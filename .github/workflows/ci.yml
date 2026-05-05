@@ -179,7 +179,44 @@ jobs:
       - run: npm run build
 
   # ------------------------------------------------------------------
-  # 8. ci-success — single required check used by Railway as the
+  # 8. golden-w2 — Week 2 50-case eval gate + regression check.
+  #    Boolean rubrics over synthesized responses; the Week 1 verifier
+  #    runs on each, so a regression in agent/verifier.py would drop
+  #    the `factually_consistent` pass rate and fail this job.
+  #    See eval/golden_w2/check_regression.py for the gate logic.
+  # ------------------------------------------------------------------
+  golden-w2:
+    name: Eval gate (50-case golden set)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+          cache-dependency-path: |
+            pyproject.toml
+            requirements.txt
+      - name: Install runtime deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install pytest pytest-asyncio
+      - name: Run 50-case golden suite (rubric correctness)
+        env:
+          ANTHROPIC_API_KEY: ci-fake-key-not-used
+          SESSION_SECRET: ci-session-secret-at-least-sixteen-chars
+        run: python -m pytest eval/golden_w2/ -v
+      - name: Regression check vs committed baseline
+        env:
+          ANTHROPIC_API_KEY: ci-fake-key-not-used
+          SESSION_SECRET: ci-session-secret-at-least-sixteen-chars
+        run: python eval/golden_w2/check_regression.py
+
+  # ------------------------------------------------------------------
+  # 9. ci-success — single required check used by Railway as the
   #    deploy gate. Fails if ANY upstream job failed or was skipped.
   # ------------------------------------------------------------------
   ci-success:
@@ -193,6 +230,7 @@ jobs:
       - npm-audit
       - gitleaks
       - ui-build
+      - golden-w2
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:

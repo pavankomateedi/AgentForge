@@ -6,12 +6,19 @@ export type ValueMismatch = {
   record_value: number
 }
 
+export type NameMismatch = {
+  source_id: string
+  record_name: string
+  cited_drug: string
+}
+
 export type Verification = {
   passed: boolean
   note: string
   cited_ids: string[]
   unknown_ids: string[]
   value_mismatches: ValueMismatch[]
+  name_mismatches: NameMismatch[]
 }
 
 export type RuleFinding = {
@@ -34,6 +41,12 @@ export type Usage = {
   cache_read_input_tokens: number
 }
 
+export type MultiAgentTrace = {
+  workers_invoked: string[]
+  routing_reason: string
+  stage_timings_ms: Record<string, number>
+}
+
 export type Trace = {
   trace_id: string
   trace_url: string | null
@@ -49,6 +62,7 @@ export type Trace = {
     plan: Usage
     reason: Usage
   }
+  multi_agent: MultiAgentTrace | null
 }
 
 export type ChatResponse = {

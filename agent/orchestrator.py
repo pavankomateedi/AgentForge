@@ -131,6 +131,7 @@ async def run_turn(
         if v is not None:
             obs.score("cited_ids_count", len(v.cited_ids))
             obs.score("value_mismatches", len(v.value_mismatches))
+            obs.score("name_mismatches", len(v.name_mismatches))
         obs.score("rule_findings_count", len(trace.rule_findings))
         critical_count = sum(
             1 for f in trace.rule_findings if f.severity == "critical"

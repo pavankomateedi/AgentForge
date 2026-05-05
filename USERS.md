@@ -211,13 +211,17 @@ Source of truth: [`agent/rbac.py`](./agent/rbac.py). The agent's Plan
 node sees only the subset of tools allowed for the caller's role —
 the LLM literally cannot invoke a tool its role isn't permitted to.
 
-| Tool | Physician | Nurse | Resident |
-|---|---|---|---|
-| `get_patient_summary` | ✅ | ✅ | ✅ |
-| `get_problem_list` | ✅ | ❌ | ✅ |
-| `get_medication_list` | ✅ | ✅ | ✅ |
-| `get_recent_labs` | ✅ | ✅ | ✅ |
-| `get_recent_encounters` | ✅ | ✅ | ✅ |
+| Tool | Physician | Nurse | Resident | Use cases |
+| --- | --- | --- | --- | --- |
+| `get_patient_summary` | ✅ | ✅ | ✅ | UC-1 |
+| `get_problem_list` | ✅ | ❌ | ✅ | UC-1, UC-3 |
+| `get_medication_list` | ✅ | ✅ | ✅ | UC-1, UC-4 |
+| `get_recent_labs` | ✅ | ✅ | ✅ | UC-1, UC-3 |
+| `get_recent_encounters` | ✅ | ✅ | ✅ | UC-1, UC-2, UC-6 |
+| `get_lab_history` | ✅ | ✅ | ✅ | UC-3, UC-7 (lab trend over time) |
+| `get_changes_since` | ✅ | ✅ | ✅ | UC-2 (delta since a date) |
+| `get_recent_documents` | ✅ | ✅ | ✅ | UC-4 (uploaded chart docs) |
+| `check_clinical_thresholds` | ✅ | ✅ | ✅ | UC-1, UC-3 (rule findings on demand) |
 
 Why nurse is excluded from `get_problem_list`: ICD-10 diagnostic
 coding is physician-scope in the institutional pattern this
@@ -228,6 +232,13 @@ roles. The resident role is physician-equivalent for tool access but
 **every response is watermarked** "supervised review recommended" by
 [`agent/main.py`](./agent/main.py) so downstream consumers know the
 briefing came from a trainee.
+
+The four trend/document/threshold tools are enabled for all three
+roles: surfacing existing structured facts (history, deltas, uploaded
+documents) and existing rule-engine findings is read-only and does
+not introduce new diagnostic judgment. The diagnostic ICD-10
+restriction on nurses still applies because `get_problem_list` is
+their only entry point into that data.
 
 ### Patient assignment gate
 
