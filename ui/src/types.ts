@@ -34,6 +34,12 @@ export type Usage = {
   cache_read_input_tokens: number
 }
 
+export type MultiAgentTrace = {
+  workers_invoked: string[]
+  routing_reason: string
+  stage_timings_ms: Record<string, number>
+}
+
 export type Trace = {
   trace_id: string
   trace_url: string | null
@@ -49,6 +55,7 @@ export type Trace = {
     plan: Usage
     reason: Usage
   }
+  multi_agent: MultiAgentTrace | null
 }
 
 export type ChatResponse = {

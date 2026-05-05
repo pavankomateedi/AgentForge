@@ -226,6 +226,11 @@ def stub_run_turn(monkeypatch) -> dict[str, Any]:
         )
 
     monkeypatch.setattr(agent_main, "run_turn", fake_run_turn)
+    # The outer (multi-agent) graph also imports run_turn into its own
+    # namespace; patching only `agent.main` would leave that path live.
+    from agent.agents import outer_graph as outer_graph_mod
+
+    monkeypatch.setattr(outer_graph_mod, "run_turn", fake_run_turn)
     return state
 
 

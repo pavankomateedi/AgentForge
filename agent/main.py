@@ -19,6 +19,7 @@ from agent import audit, auth, budget, documents as doc_storage, observability, 
 from agent.auth import ABSOLUTE_TIMEOUT_SECONDS, User, get_current_user
 from agent.config import Config, get_config
 from agent.db import connect, init_db
+from agent.agents.outer_graph import run_multi_agent_turn
 from agent.extractors.extraction import run_extraction
 from agent.orchestrator import run_turn
 from agent.schemas.document import DocType, UploadAcceptedTypes, UploadResponse
@@ -358,6 +359,18 @@ class ChatRequest(BaseModel):
             f"{MAX_HISTORY_TURNS} entries."
         ),
     )
+    # Opt-in multi-agent routing (Week 2). When true, /chat goes through
+    # the supervisor + workers + answer pipeline outer graph. When
+    # false (default), the existing Week 1 11-node pipeline runs
+    # directly. Default-false preserves backward compatibility for the
+    # 250+ tests that pin Week 1 behavior; the UI sets this true.
+    multi_agent: bool = Field(
+        default=False,
+        description=(
+            "Route via supervisor + 2 workers (intake_extractor, "
+            "evidence_retriever) + the existing answer pipeline."
+        ),
+    )
 
 
 class ChatResponse(BaseModel):
@@ -454,16 +467,31 @@ async def chat(
         for h in req.history[-MAX_HISTORY_TURNS:]
     ]
 
-    result = await run_turn(
-        client=_client,
-        model=_config.model,
-        patient_id=req.patient_id,
-        user_message=req.message,
-        user_id=str(current_user.id),
-        user_role=current_user.role,
-        available_tools=available_tools,
-        history=history_payload,
-    )
+    routing_decision = None
+    multi_agent_timings: dict[str, int] = {}
+    if req.multi_agent:
+        result, routing_decision, multi_agent_timings = await run_multi_agent_turn(
+            client=_client,
+            model=_config.model,
+            database_url=_config.database_url,
+            patient_id=req.patient_id,
+            user_message=req.message,
+            user_id=str(current_user.id),
+            user_role=current_user.role,
+            available_tools=available_tools,
+            history=history_payload,
+        )
+    else:
+        result = await run_turn(
+            client=_client,
+            model=_config.model,
+            patient_id=req.patient_id,
+            user_message=req.message,
+            user_id=str(current_user.id),
+            user_role=current_user.role,
+            available_tools=available_tools,
+            history=history_payload,
+        )
 
     # ---- Resident watermark ----
     # Residents see physician-equivalent tools but every response is
@@ -556,6 +584,15 @@ async def chat(
             "plan": result.trace.plan_usage,
             "reason": result.trace.reason_usage,
         },
+        "multi_agent": (
+            {
+                "workers_invoked": routing_decision.workers_to_invoke,
+                "routing_reason": routing_decision.reason,
+                "stage_timings_ms": multi_agent_timings,
+            }
+            if routing_decision is not None
+            else None
+        ),
     }
 
     return ChatResponse(
