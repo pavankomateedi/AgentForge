@@ -69,18 +69,28 @@ export function DocumentUploader({ patientId, onUploaded, onClose }: Props) {
     setError(null)
     setSuccess(null)
     const res = await api.uploadDocument(patientId, docType, file)
-    setSubmitting(false)
     if (!res.ok) {
+      setSubmitting(false)
       setError(res.message)
       return
     }
+    // Show a clear "processing in background" message, refresh the
+    // documents list so the new row appears, and auto-close the modal
+    // after a short beat. Keeping `submitting` true through the
+    // countdown freezes the form so the user can't double-submit.
     setSuccess(
       res.data.deduplicated
-        ? `Already uploaded — using existing document #${res.data.document_id}.`
-        : `Uploaded as document #${res.data.document_id}. Extraction queued.`,
+        ? `Already on file as document #${res.data.document_id}. ` +
+            `See it in the documents list. Closing…`
+        : `Document #${res.data.document_id} uploaded. ` +
+            `Extraction is running in the background — track its ` +
+            `status in the documents list. Closing…`,
     )
     setFile(null)
     onUploaded()
+    window.setTimeout(() => {
+      onClose()
+    }, 1800)
   }
 
   return (
