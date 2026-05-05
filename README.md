@@ -130,14 +130,25 @@ open http://127.0.0.1:8000     # or visit manually
 
 | Variable | Purpose | Required? |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Claude API access | ✅ |
+| `ANTHROPIC_API_KEY` | Claude API access (chat + extraction). | ✅ |
 | `SESSION_SECRET` | Signs the session cookie. Generate with `python -c "import secrets; print(secrets.token_urlsafe(32))"`. Must be ≥16 chars. | ✅ |
-| `ANTHROPIC_MODEL` | Defaults to `claude-opus-4-7` | — |
-| `DATABASE_URL` | Defaults to `sqlite:///./agentforge.db` | — |
-| `SESSION_HTTPS_ONLY` | `true` in prod, `false` for local http | — |
+| `ANTHROPIC_MODEL` | Defaults to `claude-opus-4-7`. | — |
+| `DATABASE_URL` | Defaults to `sqlite:///./agentforge.db`. Week 2's `documents` + `derived_observations` tables auto-migrate on lifespan startup. | — |
+| `SESSION_HTTPS_ONLY` | `true` in prod, `false` for local http. | — |
 | `DEFAULT_USER_USERNAME`, `_EMAIL`, `_PASSWORD` | If all three are set AND DB is empty, a user is bootstrapped on startup. Useful for Railway's ephemeral filesystem. | — |
+| `EXTRA_USERS_JSON` | JSON list of additional users to seed on every cold start (graders, nurse, second physician). Schema in [`agent/main.py:_bootstrap_extra_users`](agent/main.py). Supports `totp_secret` (pre-enroll) and `bypass_mfa` (password-only) flags. Synthetic data only — never set on a real-PHI deployment. | — |
 | `RESEND_API_KEY`, `RESEND_FROM` | Real password-reset email delivery. Without them, the reset link is logged to the server console (dev fallback). | — |
 | `APP_BASE_URL` | Used in password-reset link emails. Defaults to `http://127.0.0.1:8000`. Set to your public URL in prod. | — |
+| `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST` | Optional observability. Without them, traces stay in-process. | — |
+| `DAILY_TOKEN_BUDGET` | Per-user/day token cap; `/chat` 429s when exceeded. Defaults to a generous demo value; lower in shared deployments. | — |
+
+**Week 2 — multimodal + RAG additions:**
+
+| Variable | Purpose | Required? |
+| --- | --- | --- |
+| `COHERE_API_KEY` | Cohere `rerank-v3.5` API key. When set, the hybrid retriever uses Cohere as the reranker; when absent, it transparently falls back to a local cross-encoder (`sentence-transformers/cross-encoder/ms-marco-MiniLM-L-6-v2`). | — (optional; local fallback always available) |
+| `RERANKER_FALLBACK` | Set to `local` to force the local cross-encoder reranker even when `COHERE_API_KEY` is set. The eval gate uses this to stay free + deterministic in CI. | — |
+| `SUPERVISOR_MODE` | Set to `heuristic` to skip the LLM-driven supervisor and route purely on keyword heuristics. Useful when running the eval suite in fully-deterministic mode. Default behavior is LLM-supervised with heuristic fallback on parse failure. | — |
 
 ---
 
