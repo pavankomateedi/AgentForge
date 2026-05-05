@@ -22,26 +22,30 @@ export function DocumentUploader({ patientId, onUploaded, onClose }: Props) {
   const [success, setSuccess] = useState<string | null>(null)
   const [loadingSample, setLoadingSample] = useState(false)
 
-  // Pull the synthetic sample PDF for the current patient into the
-  // form's File state so the grader can upload-without-download.
-  // Served by `agent/main.py` from `samples/lab_pdfs/`. Falls back
-  // gracefully if the patient has no checked-in sample.
+  // Pull the synthetic sample PDF for the current patient + doc-type
+  // combo into the form's File state so the grader can upload-without-
+  // download. Served by `agent/main.py` from samples/lab_pdfs/ and
+  // samples/intake_forms/. The doc-type dropdown's current value
+  // decides which subdir we hit; switch the dropdown first to pick
+  // the right kind of sample.
   async function loadSample() {
     setLoadingSample(true)
     setError(null)
     try {
-      const url = `/samples/lab_pdfs/${patientId}_lab_report.pdf`
+      const subdir = docType === 'lab_pdf' ? 'lab_pdfs' : 'intake_forms'
+      const stem = docType === 'lab_pdf' ? 'lab_report' : 'intake_form'
+      const filename = `${patientId}_${stem}.pdf`
+      const url = `/samples/${subdir}/${filename}`
       const res = await fetch(url, { credentials: 'include' })
       if (!res.ok) {
         setError(
-          `No sample PDF on file for ${patientId} (HTTP ${res.status}).`,
+          `No sample ${docType.replace('_', ' ')} on file for ${patientId} ` +
+            `(HTTP ${res.status}).`,
         )
         return
       }
       const blob = await res.blob()
-      const filename = `${patientId}_lab_report.pdf`
       setFile(new File([blob], filename, { type: 'application/pdf' }))
-      setDocType('lab_pdf')
     } catch (err) {
       setError(
         'Could not load sample: ' +
@@ -51,6 +55,9 @@ export function DocumentUploader({ patientId, onUploaded, onClose }: Props) {
       setLoadingSample(false)
     }
   }
+
+  const sampleLabel =
+    docType === 'lab_pdf' ? 'lab report' : 'intake form'
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -110,11 +117,12 @@ export function DocumentUploader({ patientId, onUploaded, onClose }: Props) {
             >
               {loadingSample
                 ? 'Loading sample…'
-                : `Use synthetic sample for ${patientId}`}
+                : `Use synthetic sample ${sampleLabel} for ${patientId}`}
             </button>
             <span className="form-hint">
-              Loads a checked-in lab PDF for this patient. Synthetic
-              data, no PHI.
+              Loads a checked-in {sampleLabel} PDF for this patient.
+              Switch the document type above to pick a different sample.
+              Synthetic data, no PHI.
             </span>
           </div>
 
