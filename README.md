@@ -1,4 +1,13 @@
-# Clinical Co-Pilot — AgentForge Week 1
+# Clinical Co-Pilot — AgentForge
+
+[![CI](https://github.com/pavankomateedi/AgentForge/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/pavankomateedi/AgentForge/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-398%20passing-brightgreen)](https://github.com/pavankomateedi/AgentForge/actions/workflows/ci.yml)
+[![Eval gate](https://img.shields.io/badge/eval%20gate-50%20cases%20%C2%B7%20100%25%20baseline-brightgreen)](eval/golden_w2/)
+[![Deploy](https://img.shields.io/badge/deploy-Railway-blue)](https://web-production-6259a.up.railway.app/)
+
+The CI badge above is live: it goes red the moment any of the 9 CI
+jobs fails on `main` — including the `golden-w2` PR-blocking eval
+gate. Click it to see the latest run's per-job status.
 
 > AI agent for primary care physicians. The Co-Pilot fits in the 60-90 second
 > gap between exam rooms: clinician opens a patient, asks **"brief me"** or a
