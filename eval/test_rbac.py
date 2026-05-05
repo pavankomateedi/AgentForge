@@ -151,6 +151,10 @@ def test_physician_sees_all_tools(
         "get_medication_list",
         "get_recent_labs",
         "get_recent_encounters",
+        "get_lab_history",
+        "get_changes_since",
+        "get_recent_documents",
+        "check_clinical_thresholds",
     }
 
 
@@ -170,6 +174,10 @@ def test_nurse_does_not_see_problem_list_tool(
         "get_medication_list",
         "get_recent_encounters",
         "get_recent_labs",
+        "get_lab_history",
+        "get_changes_since",
+        "get_recent_documents",
+        "check_clinical_thresholds",
     }
     assert call["user_role"] == "nurse"
 
@@ -190,6 +198,10 @@ def test_resident_sees_all_tools_like_physician(
         "get_medication_list",
         "get_recent_labs",
         "get_recent_encounters",
+        "get_lab_history",
+        "get_changes_since",
+        "get_recent_documents",
+        "check_clinical_thresholds",
     }
 
 

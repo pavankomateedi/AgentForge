@@ -6,12 +6,19 @@ export type ValueMismatch = {
   record_value: number
 }
 
+export type NameMismatch = {
+  source_id: string
+  record_name: string
+  cited_drug: string
+}
+
 export type Verification = {
   passed: boolean
   note: string
   cited_ids: string[]
   unknown_ids: string[]
   value_mismatches: ValueMismatch[]
+  name_mismatches: NameMismatch[]
 }
 
 export type RuleFinding = {

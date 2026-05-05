@@ -562,6 +562,14 @@ async def chat(
                     }
                     for mm in verification.value_mismatches
                 ],
+                "name_mismatches": [
+                    {
+                        "source_id": nm.source_id,
+                        "record_name": nm.record_name,
+                        "cited_drug": nm.cited_drug,
+                    }
+                    for nm in verification.name_mismatches
+                ],
             }
             if verification
             else None
