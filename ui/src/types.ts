@@ -110,11 +110,31 @@ export const PATIENTS: Patient[] = [
   { id: 'demo-005', label: 'Sarah Martinez — Stable / well-controlled' },
 ]
 
+// Example questions exposed as one-click chips above the chat form.
+// These are PROMPTS, not direct tool calls — the agent still picks
+// the right tool. Each chip is engineered to surface a specific
+// capability so the user (or grader) can discover it without prior
+// product knowledge:
+//
+//   - "Brief me" + the four follow-ups exercise the Week 1 baseline
+//     tools (summary / labs / meds / problems / encounters).
+//   - "A1c trend" exercises get_lab_history (UC-3, UC-7).
+//   - "What changed since last visit?" exercises get_changes_since
+//     (UC-2 — the headline use case from the persona doc).
+//   - "Documents on file" exercises get_recent_documents (UC-4).
+//   - "Safety check" exercises check_clinical_thresholds (UC-1, UC-3).
+//   - "Aligned with guidelines?" exercises the supervisor's
+//     evidence_retriever route into the hybrid RAG corpus.
 export const EXAMPLES: { label: string; text: string }[] = [
   { label: 'Brief me', text: 'Brief me on this patient.' },
   { label: 'Latest A1c?', text: 'What is the latest A1c result?' },
   { label: 'Current medications', text: 'What medications is the patient on?' },
   { label: 'Active conditions', text: 'What active conditions does the patient have?' },
+  { label: 'A1c trend', text: 'Show me the A1c trend over time for this patient.' },
+  { label: 'What changed since last visit?', text: 'What has changed for this patient since their last visit?' },
+  { label: 'Documents on file', text: 'What documents do we have on file for this patient and what was extracted from them?' },
+  { label: 'Safety check', text: 'Are there any clinical safety concerns or threshold violations for this patient right now?' },
+  { label: 'Aligned with guidelines?', text: "Is this patient's current treatment plan aligned with the relevant clinical guidelines?" },
 ]
 
 // ---- Auth ----
