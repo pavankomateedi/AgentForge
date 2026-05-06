@@ -206,6 +206,7 @@ def stub_run_turn(monkeypatch) -> dict[str, Any]:
         user_role=None,
         available_tools=None,
         history=None,
+        extra_retrieved_records=None,
     ) -> TurnResult:
         state["calls"].append(
             {
@@ -216,6 +217,7 @@ def stub_run_turn(monkeypatch) -> dict[str, Any]:
                 "user_role": user_role,
                 "available_tools": available_tools,
                 "history": history,
+                "extra_retrieved_records": extra_retrieved_records,
             }
         )
         trace = TurnTrace()

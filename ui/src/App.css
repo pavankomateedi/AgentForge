@@ -576,7 +576,94 @@ button.primary:disabled {
 
 .briefing-card .response {
   margin: 0;
-  white-space: pre-wrap;
+}
+
+/* Markdown elements rendered inside the briefing. The agent emits
+   GFM tables, lists, code, and headings when the answer warrants
+   structure (e.g., comparing PDF vs chart lab values side-by-side).
+   Styled to fit the workspace card without competing with it. */
+.briefing-card .response p {
+  margin: 0 0 12px;
+  line-height: 1.55;
+}
+.briefing-card .response p:last-child {
+  margin-bottom: 0;
+}
+.briefing-card .response ul,
+.briefing-card .response ol {
+  margin: 6px 0 12px;
+  padding-left: 22px;
+}
+.briefing-card .response li + li {
+  margin-top: 4px;
+}
+.briefing-card .response h1,
+.briefing-card .response h2,
+.briefing-card .response h3 {
+  margin: 12px 0 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.briefing-card .response code {
+  background: var(--bg-page);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 0.85em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.briefing-card .response pre {
+  background: var(--bg-page);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-size: 0.85em;
+  margin: 8px 0 12px;
+}
+
+/* Comparison tables — the headline visualization for "PDF vs chart"
+   answers. Light borders so they read as part of the briefing card,
+   not a separate panel. Sticky-feeling header row by virtue of
+   bg-page + bottom border weight. */
+.briefing-table,
+.briefing-card .response table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0 14px;
+  font-size: 13px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.briefing-table thead th,
+.briefing-card .response thead th {
+  text-align: left;
+  padding: 8px 12px;
+  background: var(--bg-page);
+  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 2px solid var(--border-strong);
+  white-space: nowrap;
+}
+.briefing-table tbody td,
+.briefing-card .response tbody td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+.briefing-table tbody tr:last-child td,
+.briefing-card .response tbody tr:last-child td {
+  border-bottom: none;
+}
+.briefing-table tbody tr:nth-child(even),
+.briefing-card .response tbody tr:nth-child(even) {
+  background: var(--bg-page);
 }
 
 /* Shared card header used by all four workspace cards. The thicker

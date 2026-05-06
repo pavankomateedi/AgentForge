@@ -105,13 +105,13 @@ export function BriefingCard({
         )}
 
         {!loading && result && (
-          <p className="response">
+          <div className="response">
             {result.response ? (
               <SourceText text={result.response} />
             ) : (
               <span className="empty">No briefing was produced.</span>
             )}
-          </p>
+          </div>
         )}
       </div>
     </section>
