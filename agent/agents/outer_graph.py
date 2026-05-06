@@ -177,16 +177,61 @@ def build_outer_graph(
     async def answer_node(state: OuterState) -> dict:
         """Wrap the existing Week 1 pipeline. The user_message is
         enriched with extraction_summary + evidence_hits as inline
-        context blocks; the verifier still validates citations against
-        the (extended) source set."""
+        context blocks. Extras' source ids ALSO flow as
+        extra_retrieved_records so the verifier accepts citations
+        against extracted-document or guideline-chunk source ids."""
         enriched = state["user_message"]
         ext = state.get("extraction_summary", "")
         hits = state.get("evidence_hits", [])
+
         suffixes: list[str] = []
+        extras: list[dict[str, Any]] = []
+
         if ext:
             suffixes.append(ext)
+            # Pull the same derived rows the intake worker rendered;
+            # feed them into the verifier as records so their
+            # source_ids land in retrieved_source_ids. Cheaper to
+            # re-fetch than to pipe the rows back through the worker
+            # boundary.
+            from agent import documents as doc_storage
+
+            for row in doc_storage.list_derived_for_patient(
+                database_url, state["patient_id"]
+            ):
+                extras.append({
+                    "source_id": row["source_id"],
+                    "schema_kind": row["schema_kind"],
+                    **(row["payload"] if isinstance(row["payload"], dict) else {}),
+                })
+
         if hits:
             suffixes.append(render_evidence_block(hits))
+            for h in hits:
+                extras.append({
+                    "source_id": h.chunk.chunk_id,
+                    "title": h.chunk.title,
+                    "value": h.chunk.text[:512],
+                })
+
+        # When BOTH extracted-document context AND chart history are
+        # in play, the user almost always wants a side-by-side. Tell
+        # the agent to format the answer as a clean markdown comparison
+        # so the briefing renders something legible (the v0 fallback
+        # was a JSON dump when the verifier rejected). The hint is
+        # appended once; the Reason node's system prompt is unchanged.
+        if ext:
+            suffixes.append(
+                "FORMAT GUIDANCE: When the answer compares values "
+                "across sources (uploaded document vs chart, current "
+                "vs historical), render as a GitHub-flavored markdown "
+                "table with columns: Source | Date | Test | Value | "
+                "Reference | Flag. Cite each row's source id inline "
+                "with the value. Add a brief one-line takeaway under "
+                "the table. If the question doesn't call for a "
+                "comparison, ignore this guidance and answer normally."
+            )
+
         if suffixes:
             enriched = state["user_message"] + "\n\n" + "\n\n".join(suffixes)
 
@@ -200,6 +245,7 @@ def build_outer_graph(
             user_role=state["user_role"],
             available_tools=state["available_tools"],
             history=state.get("history", []),
+            extra_retrieved_records=extras,
         )
         elapsed = int((time.perf_counter() - t0) * 1000)
         timings = dict(state.get("timings_ms", {}))

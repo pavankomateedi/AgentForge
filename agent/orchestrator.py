@@ -76,13 +76,23 @@ async def run_turn(
     user_role: str | None = None,
     available_tools: list[dict[str, Any]] | None = None,
     history: list[dict[str, str]] | None = None,
+    extra_retrieved_records: list[dict[str, Any]] | None = None,
 ) -> TurnResult:
     """history — optional list of {role, content} dicts (Anthropic message
     shape) representing prior turns in this conversation. Threaded into
     both Plan and Reason so follow-up questions resolve coherently. The
     patient_id locked into plan_user_content always wins, so history
     cannot pivot the agent to a different patient. Caller is expected
-    to have already capped length."""
+    to have already capped length.
+
+    extra_retrieved_records — optional list of records (each with a
+    `source_id` field) that the caller has ALREADY surfaced via the
+    user_message itself (e.g., the supervisor's intake_extractor
+    block, or evidence_retriever guideline chunks). The retrieve_node
+    folds them into the verifier's source-id pool so a citation
+    against an extracted-document source or a guideline chunk_id
+    isn't rejected as "not in retrieval bundle". Each record's
+    source_id must be a string."""
     trace = TurnTrace(trace_id=uuid.uuid4().hex[:12])
     log.info(
         "turn[%s] start patient=%s msg_len=%d history=%d",
@@ -101,6 +111,7 @@ async def run_turn(
         "user_role": user_role,
         "available_tools": available_tools,
         "history": history or [],
+        "extra_retrieved_records": extra_retrieved_records or [],
         "trace": trace,
     }
 

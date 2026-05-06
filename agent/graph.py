@@ -209,8 +209,19 @@ async def retrieve_node(state: TurnState) -> dict[str, Any]:
         except (json.JSONDecodeError, TypeError):
             parsed_results.append({})
 
-    retrieved_source_ids = collect_source_ids(parsed_results)
-    record_index = build_record_index(parsed_results)
+    # Fold any caller-provided extras (intake_extractor derived rows,
+    # evidence_retriever guideline chunks) into the source-id pool so
+    # the verifier doesn't reject citations the supervisor injected
+    # via the user_message text. Extras are NOT re-injected into the
+    # Reason node's message list — that already happened upstream
+    # via the user_message's <extracted_documents> / <guideline_evidence>
+    # blocks. We just need them in the verifier's "what was retrieved
+    # this turn" set.
+    extras: list[dict[str, Any]] = state.get("extra_retrieved_records") or []
+    pool = parsed_results + extras
+
+    retrieved_source_ids = collect_source_ids(pool)
+    record_index = build_record_index(pool)
     trace.retrieved_source_ids = sorted(retrieved_source_ids)
 
     tool_errors = [r for r in tool_results if r.get("is_error")]
