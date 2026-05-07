@@ -27,7 +27,21 @@ gate. Click it to see the latest run's per-job status.
 
 **Deployed:** https://web-production-6259a.up.railway.app
 **Demo video:** https://www.loom.com/share/926a88546fec44f4862ff3109d638f5c
-**Documents:** [AUDIT.md](./AUDIT.md) · [USERS.md](./USERS.md) · [ARCHITECTURE.md](./ARCHITECTURE.md) · [HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md) · [terraform/](./terraform/)
+**Documents:** [AUDIT.md](./AUDIT.md) · [USERS.md](./USERS.md) · [ARCHITECTURE.md](./ARCHITECTURE.md) · [HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md) · [terraform/](./terraform/) · [PATIENT_DASHBOARD_MIGRATION.md](./PATIENT_DASHBOARD_MIGRATION.md)
+
+## Surprise challenge — OpenEMR Patient Dashboard port
+
+In addition to the Clinical Co-Pilot, this repo includes a **port of the
+OpenEMR PHP patient dashboard to React + Vite + TypeScript**, mounted at
+**`/dashboard`** on the deployed app. It consumes OpenEMR's existing REST +
+FHIR R4 API as the data layer; no backend changes.
+
++ **Source:** [`dashboard/`](./dashboard/) (React 19 + Vite 8 + TS 6, mirrors `ui/`)
++ **Defense doc:** [PATIENT_DASHBOARD_MIGRATION.md](./PATIENT_DASHBOARD_MIGRATION.md)
++ **Auth:** OAuth2 Authorization Code + PKCE per RFC 7636 against OpenEMR's `/oauth2/{site}/authorize`
++ **Cards:** Patient header + Allergies + Problem List + Medications + Prescriptions + Care Team (with PractitionerRole fallback) + Labs (sortable Observation table)
++ **Live URL:** [https://web-production-6259a.up.railway.app/dashboard](https://web-production-6259a.up.railway.app/dashboard)
++ **Run locally:** `cd dashboard && cp .env.example .env && npm install && npm run dev` (see migration doc for OpenEMR Docker steps)
 
 ---
 
@@ -395,6 +409,7 @@ Optional, for production. Without `RESEND_API_KEY` set, password-reset still wor
 | Eval dataset (200 tests, 4 layers) | [`eval/`](./eval/) directory; run `make eval` (or `make eval-live` for the LLM tests) |
 | **Multi-turn conversation support** | `ChatRequest.history` field, capped to 8 turns server-side; UI carries history per conversation. Tested by [eval/test_chat_history.py](./eval/test_chat_history.py) |
 | **5 FHIR tools** incl. `get_recent_encounters` | [agent/tools.py](./agent/tools.py); RBAC whitelist in [agent/rbac.py](./agent/rbac.py) |
+| **Surprise challenge — OpenEMR dashboard port** | [`dashboard/`](./dashboard/) (React + Vite + TS), defense in [PATIENT_DASHBOARD_MIGRATION.md](./PATIENT_DASHBOARD_MIGRATION.md), live at `/dashboard` on the deployed app, CI gated by `dashboard-build` + `dashboard-audit` jobs |
 
 ---
 

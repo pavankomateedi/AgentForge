@@ -179,6 +179,59 @@ jobs:
       - run: npm run build
 
   # ------------------------------------------------------------------
+  # 7b. Dashboard build — typecheck + lint + production bundle for the
+  #     OpenEMR Patient Dashboard SPA. Mirrors ui-build for the
+  #     dashboard/ workspace.
+  # ------------------------------------------------------------------
+  dashboard-build:
+    name: Dashboard build (vite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - name: Build with placeholder env (config.ts asserts requireds at runtime, not build)
+        env:
+          VITE_OPENEMR_BASE_URL: http://localhost:8080
+          VITE_OPENEMR_FHIR_BASE: http://localhost:8080/apis/default/fhir
+          VITE_OAUTH_AUTHORIZE_URL: http://localhost:8080/oauth2/default/authorize
+          VITE_OAUTH_TOKEN_URL: http://localhost:8080/oauth2/default/token
+          VITE_OAUTH_CLIENT_ID: ci-placeholder
+          VITE_OAUTH_REDIRECT_URI: http://localhost:5174/dashboard/oauth/callback
+          VITE_OAUTH_SCOPES: openid offline_access patient/Patient.read
+        run: npm run build
+
+  # ------------------------------------------------------------------
+  # 7c. Dashboard deps audit — npm audit on dashboard/ workspace.
+  # ------------------------------------------------------------------
+  dashboard-audit:
+    name: Dashboard deps audit (npm audit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: dashboard
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm audit --omit=dev --audit-level=high
+
+  # ------------------------------------------------------------------
   # 8. golden-w2 — Week 2 50-case eval gate + regression check.
   #    Boolean rubrics over synthesized responses; the Week 1 verifier
   #    runs on each, so a regression in agent/verifier.py would drop
@@ -230,6 +283,8 @@ jobs:
       - npm-audit
       - gitleaks
       - ui-build
+      - dashboard-build
+      - dashboard-audit
       - golden-w2
     runs-on: ubuntu-latest
     timeout-minutes: 1
