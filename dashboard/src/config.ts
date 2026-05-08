@@ -4,7 +4,10 @@
 // immediately rather than at the first OAuth redirect.
 
 function required(name: string, value: string | undefined): string {
-  if (!value) {
+  // Treat only undefined as missing. Empty string is a legitimate value
+  // (e.g. VITE_OPENEMR_BASE_URL="" means "use same-origin") and must not
+  // crash the SPA at module load.
+  if (value === undefined) {
     throw new Error(
       `Missing required env var ${name}. Copy dashboard/.env.example to dashboard/.env and fill it in.`,
     )
