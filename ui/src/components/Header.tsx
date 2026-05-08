@@ -15,6 +15,14 @@ export function Header({ user, onLogout, loggingOut }: Props) {
         <p className="tagline">Pre-visit briefings, grounded in the chart.</p>
       </div>
       <div className="user-block">
+        <a
+          href="/dashboard/"
+          className="ghost cross-app-link"
+          aria-label="Open OpenEMR Patient Dashboard"
+          title="Open the OpenEMR Patient Dashboard surprise-challenge port"
+        >
+          Patient Dashboard →
+        </a>
         <span className="user-info" title={user.email}>
           {display}
         </span>
