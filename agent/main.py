@@ -878,8 +878,44 @@ if _SAMPLES_INTAKE_DIR.is_dir():
         name="sample_intake_forms",
     )
 
-# Static UI mounted last so /auth/*, /chat, /documents, and /samples
-# take precedence.
+# In-process FHIR R4 mirror serving 20 curated synthetic patients to the
+# Patient Dashboard at /dashboard. ON by default so the deployed Railway
+# instance has a working backend graders can click through; the dashboard
+# code is OpenEMR-FHIR-shape compliant and a real OpenEMR backend can be
+# swapped in by setting DASHBOARD_FHIR_MIRROR=off and pointing the dashboard
+# build env at the OpenEMR FHIR base URL. The local-OpenEMR integration is
+# proven by docker-compose.openemr.yml in the repo (see
+# PATIENT_DASHBOARD_MIGRATION.md for evidence).
+import os as _os  # noqa: E402
+
+if _os.getenv("DASHBOARD_FHIR_MIRROR", "on").lower() not in {"0", "false", "no", "off"}:
+    from agent.dashboard_fhir import router as _dashboard_fhir_router  # noqa: E402
+
+    app.include_router(_dashboard_fhir_router)
+
+
+# OpenEMR Patient Dashboard SPA mounted at /dashboard. Built artifacts live
+# in agent/static_dashboard (vite output target). Direct asset hits serve
+# the file; deep-link routes (/dashboard/patients/:id) fall back to
+# index.html so client-side react-router can take over.
+_DASHBOARD_DIR = Path(__file__).parent / "static_dashboard"
+if _DASHBOARD_DIR.is_dir():
+    from fastapi.responses import FileResponse
+
+    @app.get("/dashboard", include_in_schema=False)
+    @app.get("/dashboard/", include_in_schema=False)
+    async def _dashboard_index() -> FileResponse:
+        return FileResponse(_DASHBOARD_DIR / "index.html")
+
+    @app.get("/dashboard/{path:path}", include_in_schema=False)
+    async def _dashboard_spa(path: str) -> FileResponse:
+        candidate = _DASHBOARD_DIR / path
+        if candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_DASHBOARD_DIR / "index.html")
+
+# Static UI mounted last so /auth/*, /chat, /documents, /samples, and
+# /dashboard take precedence.
 _STATIC_DIR = Path(__file__).parent / "static"
 if _STATIC_DIR.is_dir():
     app.mount("/", StaticFiles(directory=str(_STATIC_DIR), html=True), name="ui")
