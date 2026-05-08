@@ -200,15 +200,22 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run lint
-      - name: Build with placeholder env (config.ts asserts requireds at runtime, not build)
+      - name: Build for production (synthetic FHIR backend served by FastAPI mirror)
         env:
-          VITE_OPENEMR_BASE_URL: http://localhost:8080
-          VITE_OPENEMR_FHIR_BASE: http://localhost:8080/apis/default/fhir
-          VITE_OAUTH_AUTHORIZE_URL: http://localhost:8080/oauth2/default/authorize
-          VITE_OAUTH_TOKEN_URL: http://localhost:8080/oauth2/default/token
-          VITE_OAUTH_CLIENT_ID: ci-placeholder
-          VITE_OAUTH_REDIRECT_URI: http://localhost:5174/dashboard/oauth/callback
+          # Same-origin: dashboard fetches /dashboard-fhir on whichever Railway
+          # host serves it, FastAPI's mirror returns the 20-patient dataset.
+          VITE_OPENEMR_BASE_URL: ""
+          VITE_OPENEMR_FHIR_BASE: /dashboard-fhir
+          # OAuth is bypassed in the deployed demo (real OpenEMR Docker exists
+          # in the repo as the integration proof). Leaving the OAuth env vars
+          # set so config.ts's required-vars check passes — the values aren't
+          # used because VITE_DEV_BYPASS=true short-circuits the OAuth flow.
+          VITE_OAUTH_AUTHORIZE_URL: about:blank
+          VITE_OAUTH_TOKEN_URL: about:blank
+          VITE_OAUTH_CLIENT_ID: demo
+          VITE_OAUTH_REDIRECT_URI: __runtime__
           VITE_OAUTH_SCOPES: openid offline_access patient/Patient.read
+          VITE_DEV_BYPASS: "true"
         run: npm run build
 
   # ------------------------------------------------------------------

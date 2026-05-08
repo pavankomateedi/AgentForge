@@ -69,20 +69,28 @@ export default function Login() {
 
         {config.devBypass && (
           <div style={{ marginTop: 24 }}>
-            <button type="button" className="primary" onClick={() => startLogin(returnTo)}>
-              Sign in with OpenEMR
-            </button>
-            <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-muted)' }}>
-              Dev mode: OpenEMR not configured.
-            </div>
-            <button
-              type="button"
-              className="ghost"
-              style={{ marginTop: 8 }}
-              onClick={devContinue}
+            <div
+              style={{
+                marginBottom: 16,
+                fontSize: 13,
+                color: 'var(--text-muted)',
+              }}
             >
-              Continue without OAuth (dev)
+              Dev mode: OpenEMR not configured. Use the dev bypass to view the
+              dashboard against the public HAPI FHIR test server.
+            </div>
+            <button type="button" className="primary" onClick={devContinue}>
+              Continue (dev bypass)
             </button>
+            <div style={{ marginTop: 16 }}>
+              <button
+                type="button"
+                className="ghost"
+                onClick={() => startLogin(returnTo)}
+              >
+                Sign in with OpenEMR (requires running provider)
+              </button>
+            </div>
           </div>
         )}
       </div>

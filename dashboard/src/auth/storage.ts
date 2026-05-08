@@ -7,6 +7,7 @@ const TOKEN_EXPIRES_KEY = 'dashboard.access_token_expires_at'
 const PKCE_VERIFIER_KEY = 'dashboard.pkce_verifier'
 const STATE_KEY = 'dashboard.oauth_state'
 const POST_LOGIN_REDIRECT_KEY = 'dashboard.post_login_redirect'
+const PATIENT_CONTEXT_KEY = 'dashboard.patient_context'
 
 export interface StoredToken {
   accessToken: string
@@ -34,6 +35,14 @@ export function readToken(): StoredToken | null {
 export function clearToken(): void {
   sessionStorage.removeItem(TOKEN_KEY)
   sessionStorage.removeItem(TOKEN_EXPIRES_KEY)
+  sessionStorage.removeItem(PATIENT_CONTEXT_KEY)
+}
+
+export function savePatientContext(patientId: string): void {
+  sessionStorage.setItem(PATIENT_CONTEXT_KEY, patientId)
+}
+export function readPatientContext(): string | null {
+  return sessionStorage.getItem(PATIENT_CONTEXT_KEY)
 }
 
 export function savePkceVerifier(verifier: string): void {

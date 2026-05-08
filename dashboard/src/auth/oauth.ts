@@ -11,6 +11,7 @@ import {
   popPkceVerifier,
   popPostLoginRedirect,
   popState,
+  savePatientContext,
   savePkceVerifier,
   saveState,
   saveToken,
@@ -23,6 +24,21 @@ export interface TokenResponse {
   scope?: string
   refresh_token?: string
   id_token?: string
+  // SMART-on-FHIR launch context: when the OAuth client is registered with
+  // patient/* scopes, OpenEMR returns the chosen patient's FHIR id here.
+  patient?: string
+}
+
+// The redirect URI is computed at runtime from window.location.origin so
+// the same production bundle works in every environment (Stage, Prod,
+// local dev) without separate builds. Each origin must still be
+// pre-registered with OpenEMR's OAuth client (redirect_uris array).
+function effectiveRedirectUri(): string {
+  // If an env override is set (e.g. integration tests), respect it.
+  if (config.oauthRedirectUri && config.oauthRedirectUri !== '__runtime__') {
+    return config.oauthRedirectUri
+  }
+  return `${window.location.origin}/dashboard/oauth/callback`
 }
 
 export async function startLogin(returnTo?: string): Promise<void> {
@@ -39,7 +55,7 @@ export async function startLogin(returnTo?: string): Promise<void> {
   const url = new URL(config.oauthAuthorizeUrl)
   url.searchParams.set('response_type', 'code')
   url.searchParams.set('client_id', config.oauthClientId)
-  url.searchParams.set('redirect_uri', config.oauthRedirectUri)
+  url.searchParams.set('redirect_uri', effectiveRedirectUri())
   url.searchParams.set('scope', config.oauthScopes)
   url.searchParams.set('state', state)
   url.searchParams.set('code_challenge', challenge)
@@ -78,7 +94,7 @@ export async function handleCallback(searchParams: URLSearchParams): Promise<Cal
   const body = new URLSearchParams()
   body.set('grant_type', 'authorization_code')
   body.set('code', code)
-  body.set('redirect_uri', config.oauthRedirectUri)
+  body.set('redirect_uri', effectiveRedirectUri())
   body.set('client_id', config.oauthClientId)
   body.set('code_verifier', verifier)
 
@@ -117,9 +133,16 @@ export async function handleCallback(searchParams: URLSearchParams): Promise<Cal
   }
 
   saveToken(token.access_token, token.expires_in)
+  if (token.patient) savePatientContext(token.patient)
+
+  // If OpenEMR launched us in patient context (SMART-on-FHIR launch/patient),
+  // the token names the chosen patient. Skip the picker and route straight
+  // into the patient view. Otherwise fall back to the user's original
+  // destination or the home page.
+  const fallback = popPostLoginRedirect() ?? '/'
   return {
     accessToken: token.access_token,
     expiresIn: token.expires_in,
-    redirectTo: popPostLoginRedirect() ?? '/',
+    redirectTo: token.patient ? `/patients/${token.patient}` : fallback,
   }
 }

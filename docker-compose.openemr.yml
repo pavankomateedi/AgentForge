@@ -1,0 +1,74 @@
+# Local OpenEMR for the Patient Dashboard demo.
+#
+# Brings up OpenEMR 7.0.3 LTS + MariaDB 10.11. First boot seeds the schema
+# and creates the admin user from the OE_USER / OE_PASS env vars below
+# (no browser wizard needed). Subsequent restarts reuse the persistent
+# volumes.
+#
+#   docker compose -f docker-compose.openemr.yml up -d
+#   # wait 5-10 minutes for first-boot install (watch logs):
+#   docker compose -f docker-compose.openemr.yml logs -f openemr
+#   # done when you see: "OpenEMR is ready"
+#
+# UI:           http://localhost:8080
+# Admin login:  admin / pass    (change in OpenEMR UI for any non-demo use)
+# FHIR base:    http://localhost:8080/apis/default/fhir
+#
+# To register an OAuth2 client for the dashboard:
+#   Admin -> System -> API Clients -> Register New App
+#     name:          AgentForge Patient Dashboard
+#     application type: public (PKCE)
+#     redirect URIs: http://localhost:5174/dashboard/oauth/callback
+#     scopes:        openid offline_access patient/*.read launch/patient
+#   Copy the client_id back into dashboard/.env (VITE_OAUTH_CLIENT_ID).
+
+services:
+  openemr-mysql:
+    image: mariadb:10.11
+    container_name: openemr-mysql
+    restart: unless-stopped
+    command:
+      - mariadbd
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: openemr
+      MYSQL_USER: openemr
+      MYSQL_PASSWORD: openemrpass
+    volumes:
+      - openemr-mysql-data:/var/lib/mysql
+    healthcheck:
+      test:
+        ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  openemr:
+    image: openemr/openemr:7.0.3
+    container_name: openemr
+    restart: unless-stopped
+    depends_on:
+      openemr-mysql:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+      - "8443:443"
+    environment:
+      MYSQL_HOST: openemr-mysql
+      MYSQL_ROOT_PASS: rootpass
+      MYSQL_USER: openemr
+      MYSQL_PASS: openemrpass
+      MYSQL_DATABASE: openemr
+      OE_USER: admin
+      OE_PASS: pass
+      # Disable forced HTTPS in dev so the dashboard's http://localhost
+      # OAuth flow doesn't redirect-loop. Re-enable for any non-local use.
+      FORCE_NO_HTTPS: "true"
+    volumes:
+      - openemr-sites:/var/www/localhost/htdocs/openemr/sites
+
+volumes:
+  openemr-mysql-data:
+  openemr-sites:

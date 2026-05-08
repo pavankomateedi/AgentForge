@@ -45,4 +45,8 @@ export const config = {
   // can proceed against a no-auth FHIR server (HAPI test) before OpenEMR
   // is available. Stripped from production .env.
   devBypass: import.meta.env.VITE_DEV_BYPASS === 'true',
+  // Dev-only: when fhirBase is a relative proxy path (e.g. /fhir-api),
+  // this is the absolute upstream Vite forwards to. Used to rewrite
+  // Bundle.link.next URLs back through the proxy. Empty in production.
+  fhirProxyTarget: import.meta.env.VITE_FHIR_PROXY_TARGET as string | undefined,
 } as const

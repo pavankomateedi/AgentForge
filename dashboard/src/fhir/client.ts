@@ -24,17 +24,24 @@ export interface FhirClientOptions {
   getAccessToken: () => string | null
   // Called on 401 so the auth layer can clear tokens and redirect to login.
   onAuthError?: () => void
+  // Optional: rewrite a URL before fetch. Used in dev to redirect absolute
+  // FHIR-server URLs (e.g. paginated Bundle.link.next) through the Vite
+  // proxy when the browser can't reach the public FHIR server directly
+  // (common on corporate networks with HTTPS interception).
+  rewriteUrl?: (url: string) => string
 }
 
 export class FhirClient {
   private baseUrl: string
   private getAccessToken: () => string | null
   private onAuthError?: () => void
+  private rewriteUrl?: (url: string) => string
 
   constructor(opts: FhirClientOptions) {
     this.baseUrl = opts.baseUrl.replace(/\/+$/, '')
     this.getAccessToken = opts.getAccessToken
     this.onAuthError = opts.onAuthError
+    this.rewriteUrl = opts.rewriteUrl
   }
 
   // GET an absolute or relative FHIR URL. Throws FhirError on non-2xx.
@@ -45,7 +52,8 @@ export class FhirClient {
     }
     if (token) headers.Authorization = `Bearer ${token}`
 
-    const res = await fetch(url, { headers })
+    const finalUrl = this.rewriteUrl ? this.rewriteUrl(url) : url
+    const res = await fetch(finalUrl, { headers })
     if (res.status === 401) {
       this.onAuthError?.()
       throw new FhirError(401, 'Authentication failed or expired')
@@ -110,9 +118,22 @@ export class FhirClient {
 
   private buildUrl(path: string, params?: Record<string, string | number | undefined>): string {
     const cleanPath = path.startsWith('/') ? path : `/${path}`
-    const url = new URL(`${this.baseUrl}${cleanPath}`)
+    const fullPath = `${this.baseUrl}${cleanPath}`
+    // Absolute (https://...) — URL constructor handles directly.
+    // Relative (/fhir-api/...) — anchor against the current page origin so
+    // the URL constructor can build a query string.
+    const isAbsolute = /^https?:\/\//i.test(fullPath)
+    const url = isAbsolute
+      ? new URL(fullPath)
+      : new URL(fullPath, window.location.origin)
     for (const [k, v] of Object.entries(params ?? {})) {
       if (v !== undefined && v !== '') url.searchParams.set(k, String(v))
+    }
+    // For a relative base, return path+query without the synthetic origin so
+    // the browser fetches relative-to-current-origin (which is the dev server,
+    // which proxies to the real FHIR server).
+    if (!isAbsolute) {
+      return `${url.pathname}${url.search}`
     }
     return url.toString()
   }
