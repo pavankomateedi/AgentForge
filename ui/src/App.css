@@ -1129,6 +1129,28 @@ button.ghost:disabled {
   cursor: not-allowed;
 }
 
+/* Cross-app link in the header pointing to /dashboard. Distinct from
+   the standard ghost button so the OpenEMR Patient Dashboard surface
+   is discoverable from the Co-Pilot header. */
+a.ghost.cross-app-link {
+  display: inline-flex;
+  align-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 7px 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 120ms ease, color 120ms ease;
+}
+a.ghost.cross-app-link:hover {
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+}
+
 /* Splash (initial auth check) */
 
 .splash {

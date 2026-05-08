@@ -28,7 +28,7 @@
 .app-topbar {
   background: var(--bg-card);
   border-bottom: 1px solid var(--border);
-  padding: 12px 24px;
+  padding: 8px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -36,21 +36,21 @@
 }
 
 .app-topbar h1 {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
   margin: 0;
   color: var(--text-primary);
 }
 
 .app-topbar .who {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--text-secondary);
 }
 
 .app-main {
   flex: 1;
-  padding: 24px;
-  max-width: 1280px;
+  padding: 12px 16px;
+  max-width: 1400px;
   width: 100%;
   margin: 0 auto;
 }
@@ -100,15 +100,82 @@ a.ghost-link:hover {
   text-decoration: underline;
 }
 
+a.cross-app-link {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-card);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 100ms ease, color 100ms ease;
+}
+a.cross-app-link:hover {
+  background: var(--accent);
+  color: #fff;
+  text-decoration: none;
+}
+
+/* Banner pointing from one app to the other (top of dashboard home / co-pilot landing). */
+.cross-app-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: linear-gradient(180deg, #eff6ff, #dbeafe);
+  border: 1px solid #93c5fd;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-primary);
+}
+.cross-app-banner strong {
+  color: var(--accent-hover);
+}
+a.cross-app-banner-cta {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  background: var(--accent);
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 100ms ease;
+}
+a.cross-app-banner-cta:hover {
+  background: var(--accent-hover);
+  text-decoration: none;
+}
+
 /* ---- Patient header ---- */
 
 .patient-header {
   background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 18px 22px;
-  box-shadow: var(--shadow-card);
-  margin-bottom: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  padding: 12px 18px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.08);
+  margin-bottom: 12px;
+  position: relative;
+  overflow: hidden;
+}
+.patient-header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--accent);
+  opacity: 0.85;
 }
 .patient-header-name {
   display: flex;
@@ -117,31 +184,39 @@ a.ghost-link:hover {
 }
 .patient-header-name h2 {
   margin: 0;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
+  color: var(--text-primary);
 }
 .patient-header-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 24px;
-  margin: 14px 0 0;
+  gap: 10px 14px;
+  margin: 10px 0 0;
 }
 .patient-header-meta > span {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-subtle);
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
 }
 .patient-header-meta dt {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+  font-weight: 600;
   margin: 0;
 }
 .patient-header-meta dd {
-  margin: 2px 0 0;
-  font-size: 14px;
+  margin: 0;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
 .patient-header-meta dd .muted {
   font-weight: 400;
@@ -152,8 +227,8 @@ a.ghost-link:hover {
 
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
 }
 .card-wide {
   grid-column: 1 / -1;
@@ -161,71 +236,116 @@ a.ghost-link:hover {
 
 .card {
   background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: var(--shadow-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 4px 12px rgba(15, 23, 42, 0.08);
   display: flex;
   flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  transition: box-shadow 120ms ease, transform 120ms ease;
+}
+.card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--accent);
+  opacity: 0.85;
+}
+.card:hover {
+  box-shadow: 0 2px 4px rgba(15, 23, 42, 0.08), 0 8px 20px rgba(15, 23, 42, 0.10);
+  transform: translateY(-1px);
 }
 .card-header {
-  padding: 14px 18px;
-  border-bottom: 1px solid var(--border);
+  padding: 10px 14px;
+  background: linear-gradient(180deg, var(--bg-subtle), var(--bg-card));
+  border-bottom: 1px solid var(--border-strong);
   display: flex;
   align-items: center;
   justify-content: space-between;
 }
 .card-title {
   margin: 0;
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.01em;
 }
 .card-count {
-  font-size: 12px;
-  color: var(--text-muted);
-  background: var(--bg-subtle);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 2px 8px;
+  padding: 1px 8px;
 }
 .card-body {
-  padding: 12px 18px 16px;
-  font-size: 14px;
+  padding: 10px 12px 12px;
+  font-size: 13px;
   color: var(--text-primary);
+  background: linear-gradient(180deg, rgba(241, 245, 249, 0.4), rgba(241, 245, 249, 0.0) 60px);
 }
 
 /* ---- Record list (allergies, problems, meds, prescriptions, careteam) ---- */
+/* Each record renders as a self-contained sub-card inside the parent
+   card so distinct clinical items are immediately scannable. */
 
 .record-list {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .record-row {
-  padding: 10px 0;
-  border-bottom: 1px dashed var(--border);
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  background: var(--bg-card);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
 }
-.record-row:last-child {
-  border-bottom: 0;
-  padding-bottom: 2px;
+.record-row:hover {
+  border-color: var(--border-strong);
+  border-left-color: var(--accent);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+  transform: translateX(2px);
 }
 .record-primary {
   font-weight: 600;
   color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.35;
 }
 .record-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px 10px;
   margin-top: 4px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-secondary);
   align-items: center;
+  line-height: 1.35;
 }
 .record-secondary {
   color: var(--text-secondary);
+  background: var(--bg-subtle);
+  padding: 1px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
 }
 .record-date {
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: auto;
 }
 
 /* ---- Picker list ---- */
@@ -246,11 +366,11 @@ a.ghost-link:hover {
   background: transparent;
   border: 0;
   text-align: left;
-  padding: 12px 6px;
+  padding: 7px 8px;
   display: flex;
   align-items: baseline;
-  gap: 16px;
-  border-radius: 6px;
+  gap: 12px;
+  border-radius: 4px;
 }
 .picker-row:hover {
   background: var(--bg-subtle);
@@ -258,11 +378,12 @@ a.ghost-link:hover {
 .picker-name {
   font-weight: 600;
   color: var(--text-primary);
+  font-size: 13px;
 }
 .picker-meta {
   display: inline-flex;
-  gap: 6px;
-  font-size: 13px;
+  gap: 5px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 
@@ -270,32 +391,38 @@ a.ghost-link:hover {
 
 .badge {
   display: inline-block;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: 10px;
+  font-weight: 700;
   padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--bg-subtle);
+  border-radius: 4px;
+  background: var(--bg-card);
   color: var(--text-secondary);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
+  border: 1px solid var(--border-strong);
+  line-height: 1.4;
 }
 .badge.active {
   background: var(--success-bg);
   color: var(--success-fg);
+  border-color: var(--success-fg);
 }
 .badge.inactive {
   background: var(--bg-subtle);
   color: var(--text-muted);
+  border-color: var(--border-strong);
 }
 .badge.crit-high,
 .badge.crit-h {
   background: var(--critical-bg);
   color: var(--critical-fg);
+  border-color: var(--critical-fg);
 }
 .badge.crit-low,
 .badge.crit-l {
   background: var(--success-bg);
   color: var(--success-fg);
+  border-color: var(--success-fg);
 }
 
 /* ---- State messages ---- */
@@ -328,29 +455,41 @@ a.ghost-link:hover {
 .labs-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: 12px;
+}
+.labs-table thead tr {
+  background: var(--bg-subtle);
+  border-bottom: 2px solid var(--border-strong);
 }
 .labs-table th,
 .labs-table td {
   text-align: left;
-  padding: 8px 10px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
 .labs-table th {
-  font-weight: 600;
-  font-size: 12px;
+  font-weight: 700;
+  font-size: 11px;
   color: var(--text-secondary);
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   cursor: pointer;
   user-select: none;
 }
 .labs-table th:hover {
-  color: var(--text-primary);
+  color: var(--accent);
+}
+.labs-table tbody tr:nth-child(even) {
+  background: rgba(241, 245, 249, 0.4);
 }
 .labs-table tbody tr:hover {
   background: var(--bg-subtle);
+}
+.labs-table td:nth-child(2) {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
 }
 
 .patient-view {

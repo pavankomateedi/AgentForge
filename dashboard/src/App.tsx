@@ -14,6 +14,13 @@ function TopBar() {
     <header className="app-topbar">
       <h1>OpenEMR Patient Dashboard</h1>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <a
+          href="/"
+          className="ghost cross-app-link"
+          title="Go to the Week 2 Clinical Co-Pilot (document upload + RAG + grounded chat)"
+        >
+          ← Clinical Co-Pilot
+        </a>
         <span className="who">{accessToken ? 'Signed in' : 'Not signed in'}</span>
         {accessToken && (
           <button type="button" className="ghost" onClick={signOut}>

@@ -25,9 +25,17 @@ gate. Click it to see the latest run's per-job status.
 > specify OpenEMR OAuth2 as the production target; the in-app auth is a
 > labeled v0 stand-in.
 
-**Deployed:** https://web-production-6259a.up.railway.app
+## Deployed surfaces (one Railway service, two URLs)
+
+| URL | What it is | What to demo |
+|---|---|---|
+| **[/](https://web-production-6259a.up.railway.app/)** | **Week 2 Clinical Co-Pilot** (primary) | Login (MFA) → patient → upload lab PDF → multimodal extraction → multi-agent (supervisor + 2 workers) → hybrid RAG with rerank → grounded chat with citations and bounding-box overlay |
+| **[/dashboard/](https://web-production-6259a.up.railway.app/dashboard/)** | **Surprise-challenge OpenEMR Patient Dashboard port** | OAuth2 PKCE flow (real code path, demo bypass on the deployed build) → 5 clinical cards + sortable labs table over FHIR R4 |
+
+Both apps cross-link from each other's headers.
+
 **Demo video:** https://www.loom.com/share/926a88546fec44f4862ff3109d638f5c
-**Documents:** [AUDIT.md](./AUDIT.md) · [USERS.md](./USERS.md) · [ARCHITECTURE.md](./ARCHITECTURE.md) · [HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md) · [terraform/](./terraform/) · [PATIENT_DASHBOARD_MIGRATION.md](./PATIENT_DASHBOARD_MIGRATION.md)
+**Documents:** [AUDIT.md](./AUDIT.md) · [USERS.md](./USERS.md) · [ARCHITECTURE.md](./ARCHITECTURE.md) · [HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md) · [terraform/](./terraform/) · [W2_ARCHITECTURE.md](./W2_ARCHITECTURE.md) · [W2_COST_REPORT.md](./W2_COST_REPORT.md) · [PATIENT_DASHBOARD_MIGRATION.md](./PATIENT_DASHBOARD_MIGRATION.md)
 
 ## Surprise challenge — OpenEMR Patient Dashboard port
 
