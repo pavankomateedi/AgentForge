@@ -351,20 +351,42 @@ def persist_intake_form(database_url: str, form: IntakeForm) -> int:
 
 
 def list_derived_for_patient(
-    database_url: str, patient_id: str
+    database_url: str,
+    patient_id: str,
+    *,
+    include_needs_review: bool = False,
 ) -> list[dict]:
     """Read all extracted facts for a patient, newest-first by document.
     Returned dicts are the row values (payload_json deserialized).
     Used by the evidence_retriever worker to fold extracted facts into
-    the retrieval bundle."""
-    with connect(database_url) as conn:
-        rows = conn.execute(
-            "SELECT id, document_id, source_id, schema_kind, payload_json, "
-            "confidence, page_number, bbox_json, created_at "
-            "FROM derived_observations "
-            "WHERE patient_id = ? ORDER BY document_id DESC, id ASC",
-            (patient_id,),
-        ).fetchall()
+    the retrieval bundle.
+
+    By default, derived rows from documents in `needs_review` state
+    (e.g. failed patient-identity check) are excluded so the agent
+    doesn't reason over chart-mis-routed data. Set
+    include_needs_review=True for admin views (the documents-detail UI
+    needs to show the rows so a human can look at them and approve)."""
+    if include_needs_review:
+        with connect(database_url) as conn:
+            rows = conn.execute(
+                "SELECT id, document_id, source_id, schema_kind, payload_json, "
+                "confidence, page_number, bbox_json, created_at "
+                "FROM derived_observations "
+                "WHERE patient_id = ? ORDER BY document_id DESC, id ASC",
+                (patient_id,),
+            ).fetchall()
+    else:
+        with connect(database_url) as conn:
+            rows = conn.execute(
+                "SELECT do.id, do.document_id, do.source_id, do.schema_kind, "
+                "do.payload_json, do.confidence, do.page_number, do.bbox_json, "
+                "do.created_at "
+                "FROM derived_observations do "
+                "JOIN documents d ON d.id = do.document_id "
+                "WHERE do.patient_id = ? AND d.extraction_status != 'needs_review' "
+                "ORDER BY do.document_id DESC, do.id ASC",
+                (patient_id,),
+            ).fetchall()
     out: list[dict] = []
     for r in rows:
         out.append(

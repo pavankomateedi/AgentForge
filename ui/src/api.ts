@@ -141,6 +141,18 @@ export const api = {
     }
   },
 
+  approveDocument: (documentId: number) =>
+    request<{ document_id: number; status: string }>(
+      `/documents/${documentId}/approve`,
+      { method: 'POST' },
+    ),
+
+  rejectDocument: (documentId: number) =>
+    request<{ document_id: number; status: string }>(
+      `/documents/${documentId}/reject`,
+      { method: 'POST' },
+    ),
+
   patientIdentity: (patientId: string) =>
     request<{
       patient_id: string
@@ -174,7 +186,12 @@ export type DocumentMeta = {
   doc_type: 'lab_pdf' | 'intake_form'
   content_type: string
   uploaded_at: string
-  extraction_status: 'pending' | 'extracting' | 'done' | 'failed'
+  extraction_status:
+    | 'pending'
+    | 'extracting'
+    | 'done'
+    | 'failed'
+    | 'needs_review'
   extraction_error: string | null
   uploaded_by_user_id: number
   file_hash: string

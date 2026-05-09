@@ -47,6 +47,12 @@ class AuditEvent:
     DOCUMENT_EXTRACTION_STARTED = "document_extraction_started"
     DOCUMENT_EXTRACTION_COMPLETED = "document_extraction_completed"
     DOCUMENT_EXTRACTION_FAILED = "document_extraction_failed"
+    # Approval flow: clinician confirms (or denies) a document that the
+    # post-extraction systematic check flagged for review (typically a
+    # patient-identity mismatch). Details payload carries the document_id,
+    # patient_id, doc_type, and the warning text that prompted the review.
+    DOCUMENT_APPROVED = "document_approved"
+    DOCUMENT_REJECTED = "document_rejected"
     EVIDENCE_RETRIEVAL = "evidence_retrieval"
     SUPERVISOR_ROUTING_DECISION = "supervisor_routing_decision"
 

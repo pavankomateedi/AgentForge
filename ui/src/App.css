@@ -1356,6 +1356,46 @@ a.ghost.cross-app-link:hover {
   color: #b91c1c;
   border: 1px solid #fecaca;
 }
+.status-needs_review {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border: 1px solid var(--warn-border);
+}
+
+/* ---- needs_review document row (approval UX) ---- */
+
+.document-row-review {
+  border: 1px solid var(--warn-border);
+  background: var(--warn-bg);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin: 4px 0;
+}
+.document-review-action {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--warn-border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.document-review-message {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+.document-review-message strong {
+  color: var(--warn-text);
+}
+.document-review-buttons {
+  display: flex;
+  gap: 8px;
+}
+.btn-compact {
+  padding: 5px 12px !important;
+  font-size: 12px !important;
+}
 
 /* ---- Modal (uploader + document detail) ---- */
 

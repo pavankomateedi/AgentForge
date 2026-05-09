@@ -794,6 +794,102 @@ async def get_document_blob(
     return Response(content=blob, media_type=content_type)
 
 
+@app.post("/documents/{document_id}/approve")
+async def approve_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Clinician approval of a document that was flagged for review
+    (typically by the post-extraction patient-identity check). Moves
+    the status from 'needs_review' to 'done', clears the warning,
+    and emits an audit event so the approval is traceable."""
+    if _config is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    metadata = doc_storage.get_metadata(_config.database_url, document_id)
+    if metadata is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not rbac.is_assigned(
+        _config.database_url,
+        user_id=current_user.id,
+        patient_id=metadata.patient_id,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Not assigned to patient {metadata.patient_id!r}",
+        )
+    if metadata.extraction_status != "needs_review":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Document is in '{metadata.extraction_status}' state; only "
+            f"needs_review documents can be approved",
+        )
+    doc_storage.set_status(
+        _config.database_url, document_id=document_id, status="done", error=None
+    )
+    audit.record(
+        _config.database_url,
+        audit.AuditEvent.DOCUMENT_APPROVED,
+        user_id=current_user.id,
+        details={
+            "document_id": document_id,
+            "patient_id": metadata.patient_id,
+            "doc_type": metadata.doc_type,
+            "previous_warning": metadata.extraction_error,
+        },
+    )
+    return {"document_id": document_id, "status": "done"}
+
+
+@app.post("/documents/{document_id}/reject")
+async def reject_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Clinician rejection of a document — typically because the
+    identity-check warning was confirmed (wrong patient) and the
+    document should not be used for clinical reasoning. The document
+    stays in the database so the audit trail is intact, but its status
+    moves to 'failed' and the chat tools won't surface its rows."""
+    if _config is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    metadata = doc_storage.get_metadata(_config.database_url, document_id)
+    if metadata is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not rbac.is_assigned(
+        _config.database_url,
+        user_id=current_user.id,
+        patient_id=metadata.patient_id,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Not assigned to patient {metadata.patient_id!r}",
+        )
+    if metadata.extraction_status != "needs_review":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Document is in '{metadata.extraction_status}' state; only "
+            f"needs_review documents can be rejected",
+        )
+    doc_storage.set_status(
+        _config.database_url,
+        document_id=document_id,
+        status="failed",
+        error="Rejected by clinician — see audit log for details",
+    )
+    audit.record(
+        _config.database_url,
+        audit.AuditEvent.DOCUMENT_REJECTED,
+        user_id=current_user.id,
+        details={
+            "document_id": document_id,
+            "patient_id": metadata.patient_id,
+            "doc_type": metadata.doc_type,
+            "rejection_reason": metadata.extraction_error,
+        },
+    )
+    return {"document_id": document_id, "status": "failed"}
+
+
 @app.get("/patients/{patient_id}/identity")
 async def get_patient_identity(
     patient_id: str,
@@ -927,8 +1023,14 @@ async def get_document_derived(
             status_code=403,
             detail=f"Not assigned to patient {metadata.patient_id!r}",
         )
+    # include_needs_review=True so the document-detail UI can show the
+    # rows from a flagged document — the human-in-the-loop reviewer
+    # needs to see what was extracted in order to decide approve/reject.
+    # The agent's evidence_retriever uses the default (filtered).
     rows = doc_storage.list_derived_for_patient(
-        _config.database_url, metadata.patient_id
+        _config.database_url,
+        metadata.patient_id,
+        include_needs_review=True,
     )
     return {
         "document_id": document_id,

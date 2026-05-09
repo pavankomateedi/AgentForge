@@ -21,10 +21,21 @@ fax, med-list reconciliation) is gated on the first two extracting
 reliably end-to-end — see W2_ARCHITECTURE.md §1."""
 
 
-ExtractionStatus = Literal["pending", "extracting", "done", "failed"]
+ExtractionStatus = Literal[
+    "pending",
+    "extracting",
+    "done",
+    "failed",
+    "needs_review",
+]
 """State machine for the async extraction pipeline. `pending` is the
 state on insert (before the background task picks it up); `extracting`
-is set when the worker starts; terminal states are `done` and `failed`.
+is set when the worker starts; terminal states are `done`, `failed`, or
+`needs_review`. `needs_review` means extraction completed but a
+systematic check (currently: extracted patient identity vs. assigned
+patient demographics) flagged a mismatch — a clinician must approve or
+reject the document via /documents/{id}/approve or /reject before it's
+used by agent queries.
 """
 
 
