@@ -143,6 +143,11 @@ export const api = {
 
   documentBlobUrl: (documentId: number) => `/documents/${documentId}/blob`,
 
+  // Page rasterized as PNG so the UI can absolutely-position bbox overlays
+  // on top. Image-content-type documents pass through unmodified.
+  documentPageImageUrl: (documentId: number, page = 1, dpi = 144) =>
+    `/documents/${documentId}/page-image?page=${page}&dpi=${dpi}`,
+
   documentDerived: (documentId: number) =>
     request<{
       document_id: number

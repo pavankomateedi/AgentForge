@@ -27,6 +27,8 @@ pdfplumber>=0.11.0
 rank_bm25>=0.2.2
 sentence-transformers>=3.0
 cohere>=5.0
+# PDF page rasterization for visual bounding-box overlay in the UI
+PyMuPDF>=1.24.0
 
 # ---- Dev / test ----
 pytest>=8.0.0

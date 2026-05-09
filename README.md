@@ -37,6 +37,25 @@ Both apps cross-link from each other's headers.
 **Demo video:** https://www.loom.com/share/926a88546fec44f4862ff3109d638f5c
 **Documents:** [AUDIT.md](./AUDIT.md) · [USERS.md](./USERS.md) · [ARCHITECTURE.md](./ARCHITECTURE.md) · [HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md) · [terraform/](./terraform/) · [W2_ARCHITECTURE.md](./W2_ARCHITECTURE.md) · [W2_COST_REPORT.md](./W2_COST_REPORT.md) · [PATIENT_DASHBOARD_MIGRATION.md](./PATIENT_DASHBOARD_MIGRATION.md)
 
+## Week 1 baseline vs. Week 2 added
+
+Graders should be able to find the Week 2 work without guessing where it lives. This block calls out exactly what shipped when, with file pointers.
+
+| Capability | Week 1 baseline | Week 2 added | Where to look |
+|---|---|---|---|
+| Agent core | LangGraph 11-node pipeline (triage → fetch → retrieve → reason → tool-use → verifier → respond) | Outer multi-agent graph wraps Week 1 inner pipeline; supervisor + 2 workers | `agent/agents/` (W2), `agent/graph.py` (W1) |
+| Tools | 6 tools over structured demo data | 4 new tools (`get_lab_history`, `get_changes_since`, `get_recent_documents`, `check_clinical_thresholds`) + drug-name verification | `agent/tools.py`, `agent/verifier.py` |
+| Document handling | None | Lab PDF + intake form ingestion with strict Pydantic schemas, citation contract, FHIR-shape persistence | `agent/extractors/` (W2), `agent/schemas/` (W2) |
+| RAG | None | Hybrid BM25 + dense + Cohere rerank over `corpus/guidelines/` | `agent/rag/` (W2) |
+| Eval | 25-case golden set (boolean rubric, 5 categories) | 50-case golden set + PR-blocking `golden-w2` CI job | `eval/golden_w2/` (W2), `eval/golden/` (W1), `.github/workflows/ci.yml` |
+| UI | Chat + verified-citations briefing | Document upload modal · multi-agent trace surface · click-to-source bbox overlay (PNG-rasterized via PyMuPDF) · `react-markdown` table rendering · 9 example chips for new tools | `ui/src/components/DocumentUploader.tsx`, `DocumentDetail.tsx`, `BriefingCard.tsx` |
+| Dashboard | None | Surprise-challenge OpenEMR port (React + Vite + TS, OAuth2 PKCE, FHIR R4) at `/dashboard` | `dashboard/` (W2), `PATIENT_DASHBOARD_MIGRATION.md` |
+| CI gate | 3 jobs (test, ruff-security, gitleaks) | 9 jobs total — added `bandit`, `pip-audit`, `npm-audit`, `ui-build`, `dashboard-build`, `dashboard-audit`, `golden-w2` | `.github/workflows/ci.yml` |
+
+**To run the W2 core flow on the deployed app**: open <https://web-production-6259a.up.railway.app/> → sign in as `grader.demo` (TOTP secret in the Grader credentials section below) → pick a patient → click Upload, drop `samples/lab_pdfs/demo-003_lab_report.pdf` → ask "What changed in latest labs?" → grounded response with citations and bbox overlay. No env vars to set, no branch to switch.
+
+**To run locally**: see Quick start below; the same flow runs against the same code.
+
 ## Surprise challenge — OpenEMR Patient Dashboard port
 
 In addition to the Clinical Co-Pilot, this repo includes a **port of the

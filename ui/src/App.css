@@ -1557,6 +1557,12 @@ a.ghost.cross-app-link:hover {
   border-radius: var(--radius-sm);
   background: #ffffff;
 }
+.document-image-wrap {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+}
 .document-image {
   max-width: 100%;
   max-height: 70vh;
@@ -1564,6 +1570,24 @@ a.ghost.cross-app-link:hover {
   border-radius: var(--radius-sm);
   background: #ffffff;
   object-fit: contain;
+  display: block;
+}
+.document-bbox-overlay {
+  /* Yellow marker for the highlight fill (universal "annotated"
+     convention); border in the accent color for crisp edges. Red is
+     reserved for foreground use only per the project's color rule. */
+  position: absolute;
+  border: 2px solid var(--accent);
+  background: rgba(250, 204, 21, 0.32);
+  pointer-events: none;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px var(--accent-ring), 0 4px 12px rgba(15, 23, 42, 0.16);
+  transition: left 120ms ease, top 120ms ease, width 120ms ease, height 120ms ease;
+}
+.document-page-indicator {
+  font-weight: 400;
+  color: var(--text-secondary);
+  font-size: 0.85em;
 }
 
 .document-derived {
@@ -1584,6 +1608,32 @@ a.ghost.cross-app-link:hover {
   border-radius: var(--radius-sm);
   padding: 12px;
   font-size: 0.85rem;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+.derived-row-clickable {
+  cursor: pointer;
+}
+.derived-row-clickable:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.derived-row-clickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.derived-row-selected {
+  border-color: var(--accent);
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 1px 2px rgba(37, 99, 235, 0.15);
+}
+.derived-row-selected:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.derived-locator-active {
+  color: var(--accent-hover);
+  font-weight: 600;
 }
 .derived-row-header {
   display: flex;

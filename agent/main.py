@@ -794,6 +794,83 @@ async def get_document_blob(
     return Response(content=blob, media_type=content_type)
 
 
+@app.get("/documents/{document_id}/page-image")
+async def get_document_page_image(
+    document_id: int,
+    page: int = 1,
+    dpi: int = 144,
+    current_user: User = Depends(get_current_user),
+):
+    """Render a PDF page as a PNG so the UI can absolutely-position bbox
+    overlays on top of it. Image content-types pass through unmodified —
+    intake forms uploaded as PNG/JPEG already work in <img>. dpi=144
+    yields ~2x resolution from the 72-dpi PDF coordinate space, which is
+    what the UI scales bbox coordinates against."""
+    if _config is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    metadata = doc_storage.get_metadata(_config.database_url, document_id)
+    if metadata is None:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not rbac.is_assigned(
+        _config.database_url,
+        user_id=current_user.id,
+        patient_id=metadata.patient_id,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Not assigned to patient {metadata.patient_id!r}",
+        )
+    blob_pair = doc_storage.get_blob(_config.database_url, document_id)
+    if blob_pair is None:
+        raise HTTPException(status_code=404, detail="Document blob missing")
+    blob, content_type = blob_pair
+
+    from fastapi.responses import Response
+
+    if content_type and content_type.startswith("image/"):
+        return Response(
+            content=blob,
+            media_type=content_type,
+            headers={"X-Render-Dpi": "image-passthrough"},
+        )
+
+    if content_type != "application/pdf":
+        raise HTTPException(
+            status_code=415,
+            detail=f"Cannot rasterize {content_type!r}; only PDF and image content types supported",
+        )
+
+    # Lazy import — fitz is heavyish and only loaded when this endpoint fires.
+    import fitz  # type: ignore[import-not-found]
+
+    if dpi < 36 or dpi > 300:
+        raise HTTPException(status_code=400, detail="dpi must be between 36 and 300")
+
+    pdf_doc = fitz.open(stream=blob, filetype="pdf")
+    try:
+        if page < 1 or page > pdf_doc.page_count:
+            raise HTTPException(
+                status_code=404,
+                detail=f"page {page} not found (document has {pdf_doc.page_count} pages)",
+            )
+        pdf_page = pdf_doc.load_page(page - 1)
+        zoom = dpi / 72.0
+        matrix = fitz.Matrix(zoom, zoom)
+        pix = pdf_page.get_pixmap(matrix=matrix, alpha=False)
+        png_bytes = pix.tobytes("png")
+    finally:
+        pdf_doc.close()
+
+    return Response(
+        content=png_bytes,
+        media_type="image/png",
+        headers={
+            "X-Render-Dpi": str(dpi),
+            "Cache-Control": "private, max-age=300",
+        },
+    )
+
+
 @app.get("/documents/{document_id}/derived")
 async def get_document_derived(
     document_id: int,
