@@ -141,6 +141,15 @@ export const api = {
     }
   },
 
+  patientIdentity: (patientId: string) =>
+    request<{
+      patient_id: string
+      name: string | null
+      dob: string | null
+      sex: string | null
+      mrn: string | null
+    }>(`/patients/${encodeURIComponent(patientId)}/identity`),
+
   documentBlobUrl: (documentId: number) => `/documents/${documentId}/blob`,
 
   // Page rasterized as PNG so the UI can absolutely-position bbox overlays

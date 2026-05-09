@@ -32,8 +32,11 @@ export function DocumentsList({ patientId, refreshKey, onSelectDocument }: Props
 
   // Initial + on-refresh fetch.
   useEffect(() => {
+    // fetchOnce is async + sets state inside; lint rule flags it as
+    // a setState-in-effect even though the actual setState happens
+    // inside the async resolution. Pattern is correct.
+    // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
     void fetchOnce()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [patientId, refreshKey])
 
   // Poll while anything is still in-flight.

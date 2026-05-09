@@ -29,6 +29,7 @@ export function BriefingCard({
 
   useEffect(() => {
     if (!loading) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStageIndex(0)
       return
     }

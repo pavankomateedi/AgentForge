@@ -794,6 +794,40 @@ async def get_document_blob(
     return Response(content=blob, media_type=content_type)
 
 
+@app.get("/patients/{patient_id}/identity")
+async def get_patient_identity(
+    patient_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Return the bare identity fields (name, DOB, sex, MRN) for the
+    pre-upload confirmation step in the document uploader. Caller must
+    be assigned to the patient via RBAC. Sourced from the in-process
+    demo data; in a production OpenEMR integration this would hit
+    /apis/default/fhir/Patient/{id} and project to the same shape."""
+    if _config is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    if not rbac.is_assigned(
+        _config.database_url, user_id=current_user.id, patient_id=patient_id
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Not assigned to patient {patient_id!r}",
+        )
+    from agent.demo_data import DEMO_PATIENTS
+
+    record = DEMO_PATIENTS.get(patient_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail=f"Patient {patient_id!r} not found")
+    p = record.get("patient", {})
+    return {
+        "patient_id": patient_id,
+        "name": p.get("name"),
+        "dob": p.get("dob"),
+        "sex": p.get("sex"),
+        "mrn": p.get("mrn"),
+    }
+
+
 @app.get("/documents/{document_id}/page-image")
 async def get_document_page_image(
     document_id: int,
