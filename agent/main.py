@@ -890,6 +890,88 @@ async def reject_document(
     return {"document_id": document_id, "status": "failed"}
 
 
+@app.delete("/documents/{document_id}")
+async def delete_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Soft-delete a single document. Marks the row deleted_at=now,
+    hides it from documents/derived list reads, and frees the
+    (patient_id, file_hash) dedup slot so the same file can be
+    re-uploaded as a fresh row. Audit-logged. Caller must be assigned
+    to the document's patient.
+    """
+    if _config is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    metadata = doc_storage.get_metadata(_config.database_url, document_id)
+    if metadata is None:
+        # Either never existed or already soft-deleted. 404 is the right
+        # signal to the UI either way — the row isn't visible.
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not rbac.is_assigned(
+        _config.database_url,
+        user_id=current_user.id,
+        patient_id=metadata.patient_id,
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Not assigned to patient {metadata.patient_id!r}",
+        )
+    pre_delete = doc_storage.soft_delete_document(
+        _config.database_url, document_id=document_id, user_id=current_user.id
+    )
+    if pre_delete is None:
+        # Race: another request soft-deleted between our get_metadata
+        # and the UPDATE. Treat as 404 — same effective state.
+        raise HTTPException(status_code=404, detail="Document not found")
+    audit.record(
+        _config.database_url,
+        audit.AuditEvent.DOCUMENT_DELETED,
+        user_id=current_user.id,
+        details={
+            "document_id": document_id,
+            "patient_id": pre_delete.patient_id,
+            "doc_type": pre_delete.doc_type,
+            "previous_status": pre_delete.extraction_status,
+        },
+    )
+    return {"document_id": document_id, "deleted": True}
+
+
+@app.delete("/patients/{patient_id}/documents")
+async def reset_patient_chart(
+    patient_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Bulk soft-delete all active documents for a patient (chart
+    reset). Used between demo runs to clear the patient's uploaded
+    documents without losing the audit trail. Caller must be assigned
+    to the patient.
+    """
+    if _config is None:
+        raise HTTPException(status_code=503, detail="Service not initialized")
+    if not rbac.is_assigned(
+        _config.database_url, user_id=current_user.id, patient_id=patient_id
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Not assigned to patient {patient_id!r}",
+        )
+    count = doc_storage.soft_delete_all_for_patient(
+        _config.database_url, patient_id=patient_id, user_id=current_user.id
+    )
+    audit.record(
+        _config.database_url,
+        audit.AuditEvent.PATIENT_CHART_RESET,
+        user_id=current_user.id,
+        details={
+            "patient_id": patient_id,
+            "deleted_count": count,
+        },
+    )
+    return {"patient_id": patient_id, "deleted_count": count}
+
+
 @app.get("/patients/{patient_id}/identity")
 async def get_patient_identity(
     patient_id: str,

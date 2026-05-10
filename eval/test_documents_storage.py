@@ -133,6 +133,135 @@ def test_get_blob_missing_returns_none(config):
     assert doc_storage.get_blob(config.database_url, 99999) is None
 
 
+def test_soft_delete_hides_from_get_metadata(config, seed_user):
+    stored = doc_storage.insert_document(
+        config.database_url,
+        patient_id="demo-001",
+        doc_type="lab_pdf",
+        file_blob=PDF_BYTES,
+        content_type="application/pdf",
+        uploaded_by_user_id=seed_user.id,
+    )
+    pre = doc_storage.soft_delete_document(
+        config.database_url, document_id=stored.id, user_id=seed_user.id
+    )
+    assert pre is not None and pre.id == stored.id
+    # Active reads no longer surface the row.
+    assert doc_storage.get_metadata(config.database_url, stored.id) is None
+    assert doc_storage.get_blob(config.database_url, stored.id) is None
+    assert doc_storage.list_for_patient(config.database_url, "demo-001") == []
+
+
+def test_soft_delete_returns_none_for_missing(config):
+    """Deleting a non-existent document is a no-op that returns None
+    (so the endpoint can map to a 404 instead of crashing)."""
+    assert (
+        doc_storage.soft_delete_document(
+            config.database_url, document_id=99999, user_id=1
+        )
+        is None
+    )
+
+
+def test_soft_delete_then_reupload_creates_fresh_row(config, seed_user):
+    """The whole point of the partial unique index: after soft-delete
+    the same bytes for the same patient produce a NEW row, not a dedup
+    hit on the deleted one."""
+    a = doc_storage.insert_document(
+        config.database_url,
+        patient_id="demo-001",
+        doc_type="lab_pdf",
+        file_blob=PDF_BYTES,
+        content_type="application/pdf",
+        uploaded_by_user_id=seed_user.id,
+    )
+    doc_storage.soft_delete_document(
+        config.database_url, document_id=a.id, user_id=seed_user.id
+    )
+    b = doc_storage.insert_document(
+        config.database_url,
+        patient_id="demo-001",
+        doc_type="lab_pdf",
+        file_blob=PDF_BYTES,
+        content_type="application/pdf",
+        uploaded_by_user_id=seed_user.id,
+    )
+    assert b.id != a.id
+    assert b.deduplicated is False
+
+
+def test_soft_delete_all_for_patient_bulk(config, seed_user):
+    a = doc_storage.insert_document(
+        config.database_url,
+        patient_id="demo-001",
+        doc_type="lab_pdf",
+        file_blob=PDF_BYTES,
+        content_type="application/pdf",
+        uploaded_by_user_id=seed_user.id,
+    )
+    b = doc_storage.insert_document(
+        config.database_url,
+        patient_id="demo-001",
+        doc_type="intake_form",
+        file_blob=OTHER_BYTES,
+        content_type="application/pdf",
+        uploaded_by_user_id=seed_user.id,
+    )
+    # Sanity: another patient's docs survive the bulk delete.
+    c = doc_storage.insert_document(
+        config.database_url,
+        patient_id="demo-002",
+        doc_type="lab_pdf",
+        file_blob=PDF_BYTES,
+        content_type="application/pdf",
+        uploaded_by_user_id=seed_user.id,
+    )
+    count = doc_storage.soft_delete_all_for_patient(
+        config.database_url, patient_id="demo-001", user_id=seed_user.id
+    )
+    assert count == 2
+    assert doc_storage.list_for_patient(config.database_url, "demo-001") == []
+    surviving = doc_storage.list_for_patient(config.database_url, "demo-002")
+    assert {d.id for d in surviving} == {c.id}
+    # Ids referenced post-delete: kept around for type-checker, not asserted.
+    _ = (a.id, b.id)
+
+
+def test_derived_observations_hidden_after_soft_delete(config, seed_user):
+    """Soft-deleting a document hides its derived rows from the agent
+    read path even though the rows physically remain in the table."""
+    stored = doc_storage.insert_document(
+        config.database_url,
+        patient_id="demo-001",
+        doc_type="lab_pdf",
+        file_blob=PDF_BYTES,
+        content_type="application/pdf",
+        uploaded_by_user_id=seed_user.id,
+    )
+    # Hand-insert a derived row so we don't depend on extraction.
+    from agent.db import connect
+
+    with connect(config.database_url) as conn:
+        conn.execute(
+            "INSERT INTO derived_observations "
+            "(document_id, patient_id, source_id, schema_kind, payload_json) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (stored.id, "demo-001", "lab-doc-x-glucose", "lab_observation", "{}"),
+        )
+        conn.commit()
+    before = doc_storage.list_derived_for_patient(
+        config.database_url, "demo-001"
+    )
+    assert len(before) == 1
+    doc_storage.soft_delete_document(
+        config.database_url, document_id=stored.id, user_id=seed_user.id
+    )
+    after = doc_storage.list_derived_for_patient(
+        config.database_url, "demo-001"
+    )
+    assert after == []
+
+
 def test_list_for_patient_orders_newest_first(config, seed_user):
     a = doc_storage.insert_document(
         config.database_url,

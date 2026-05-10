@@ -53,6 +53,14 @@ class AuditEvent:
     # patient_id, doc_type, and the warning text that prompted the review.
     DOCUMENT_APPROVED = "document_approved"
     DOCUMENT_REJECTED = "document_rejected"
+    # Chart reset / per-document delete is a soft-delete: the row stays
+    # in the documents table with deleted_at set, derived facts are
+    # hidden from agent reads via JOIN, and re-uploading the same file
+    # creates a fresh row (the partial unique index excludes deleted
+    # rows). Audit details carry the document_id, patient_id, doc_type,
+    # and reset_count for chart-level resets.
+    DOCUMENT_DELETED = "document_deleted"
+    PATIENT_CHART_RESET = "patient_chart_reset"
     EVIDENCE_RETRIEVAL = "evidence_retrieval"
     SUPERVISOR_ROUTING_DECISION = "supervisor_routing_decision"
 

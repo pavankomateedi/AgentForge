@@ -5,9 +5,18 @@ endpoint so `main.py` stays at orchestration height. Extraction logic
 itself lives in `agent/extractors/` (Stage 1c+); this module only
 handles the byte-store + dedup + status transitions.
 
-Dedup contract: a (patient_id, file_hash) pair is unique. Re-upload of
-the same bytes for the same patient returns the existing row instead
-of erroring — keeps the UI idempotent under retries.
+Dedup contract: a (patient_id, file_hash) pair is unique among ACTIVE
+(non-soft-deleted) rows — enforced by a partial unique index. Re-upload
+of the same bytes for the same patient returns the existing active row
+instead of erroring — keeps the UI idempotent under retries. After a
+soft-delete, the partial index lets the same file be uploaded fresh as
+a new row.
+
+Soft-delete contract: callers use `soft_delete_document` /
+`soft_delete_all_for_patient`. All read helpers in this module filter
+`WHERE deleted_at IS NULL` so soft-deleted documents and their derived
+rows disappear from clinician-facing queries while remaining in the
+audit trail.
 """
 
 from __future__ import annotations
@@ -81,7 +90,8 @@ def find_by_hash(
 ) -> StoredDocument | None:
     with connect(database_url) as conn:
         row = conn.execute(
-            "SELECT * FROM documents WHERE patient_id = ? AND file_hash = ?",
+            "SELECT * FROM documents "
+            "WHERE patient_id = ? AND file_hash = ? AND deleted_at IS NULL",
             (patient_id, file_hash),
         ).fetchone()
     return _row_to_stored(row, deduplicated=True) if row else None
@@ -160,10 +170,11 @@ def set_status(
 
 
 def get_blob(database_url: str, document_id: int) -> tuple[bytes, str] | None:
-    """Returns (blob, content_type) or None if missing."""
+    """Returns (blob, content_type) or None if missing or soft-deleted."""
     with connect(database_url) as conn:
         row = conn.execute(
-            "SELECT file_blob, content_type FROM documents WHERE id = ?",
+            "SELECT file_blob, content_type FROM documents "
+            "WHERE id = ? AND deleted_at IS NULL",
             (document_id,),
         ).fetchone()
     if row is None:
@@ -174,9 +185,13 @@ def get_blob(database_url: str, document_id: int) -> tuple[bytes, str] | None:
 def get_metadata(
     database_url: str, document_id: int
 ) -> StoredDocument | None:
+    """Returns active (non-soft-deleted) metadata or None.
+    For audit-style reads that need to see deleted rows too, pass
+    `include_deleted=True` via the lower-level _row_to_stored call."""
     with connect(database_url) as conn:
         row = conn.execute(
-            "SELECT * FROM documents WHERE id = ?", (document_id,)
+            "SELECT * FROM documents WHERE id = ? AND deleted_at IS NULL",
+            (document_id,),
         ).fetchone()
     return _row_to_stored(row) if row else None
 
@@ -365,14 +380,21 @@ def list_derived_for_patient(
     (e.g. failed patient-identity check) are excluded so the agent
     doesn't reason over chart-mis-routed data. Set
     include_needs_review=True for admin views (the documents-detail UI
-    needs to show the rows so a human can look at them and approve)."""
+    needs to show the rows so a human can look at them and approve).
+
+    Soft-deleted documents (deleted_at IS NOT NULL) are ALWAYS excluded
+    — chart reset hides their derived facts from agent reads even
+    though the rows physically remain in derived_observations."""
     if include_needs_review:
         with connect(database_url) as conn:
             rows = conn.execute(
-                "SELECT id, document_id, source_id, schema_kind, payload_json, "
-                "confidence, page_number, bbox_json, created_at "
-                "FROM derived_observations "
-                "WHERE patient_id = ? ORDER BY document_id DESC, id ASC",
+                "SELECT do.id, do.document_id, do.source_id, do.schema_kind, "
+                "do.payload_json, do.confidence, do.page_number, do.bbox_json, "
+                "do.created_at "
+                "FROM derived_observations do "
+                "JOIN documents d ON d.id = do.document_id "
+                "WHERE do.patient_id = ? AND d.deleted_at IS NULL "
+                "ORDER BY do.document_id DESC, do.id ASC",
                 (patient_id,),
             ).fetchall()
     else:
@@ -384,6 +406,7 @@ def list_derived_for_patient(
                 "FROM derived_observations do "
                 "JOIN documents d ON d.id = do.document_id "
                 "WHERE do.patient_id = ? AND d.extraction_status != 'needs_review' "
+                "AND d.deleted_at IS NULL "
                 "ORDER BY do.document_id DESC, do.id ASC",
                 (patient_id,),
             ).fetchall()
@@ -408,10 +431,69 @@ def list_derived_for_patient(
 def list_for_patient(
     database_url: str, patient_id: str
 ) -> list[StoredDocument]:
+    """List active documents for a patient, newest-first. Soft-deleted
+    rows are excluded — they're audit-only and not surfaced in the UI."""
     with connect(database_url) as conn:
         rows = conn.execute(
-            "SELECT * FROM documents WHERE patient_id = ? "
+            "SELECT * FROM documents "
+            "WHERE patient_id = ? AND deleted_at IS NULL "
             "ORDER BY uploaded_at DESC",
             (patient_id,),
         ).fetchall()
     return [_row_to_stored(r) for r in rows]
+
+
+def soft_delete_document(
+    database_url: str, *, document_id: int, user_id: int
+) -> StoredDocument | None:
+    """Mark a single active document as deleted. Returns the row's
+    pre-delete metadata (so the caller can audit-log doc_type/patient_id
+    without a second read), or None if the document is missing or was
+    already soft-deleted.
+
+    derived_observations rows stay in the table — they're filtered by
+    list_derived_for_patient's JOIN against documents.deleted_at. The
+    blob also stays so the audit-trail can prove the row's content
+    didn't change between upload and delete.
+    """
+    with connect(database_url) as conn:
+        row = conn.execute(
+            "SELECT * FROM documents WHERE id = ? AND deleted_at IS NULL",
+            (document_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        pre_delete = _row_to_stored(row)
+        conn.execute(
+            "UPDATE documents SET deleted_at = datetime('now'), "
+            "deleted_by_user_id = ? WHERE id = ?",
+            (user_id, document_id),
+        )
+        conn.commit()
+    log.info(
+        "documents: soft-deleted id=%d patient=%s by_user=%d",
+        document_id, pre_delete.patient_id, user_id,
+    )
+    return pre_delete
+
+
+def soft_delete_all_for_patient(
+    database_url: str, *, patient_id: str, user_id: int
+) -> int:
+    """Bulk soft-delete: mark all active documents for a patient as
+    deleted. Returns the row count. Wraps the UPDATE in a single
+    transaction so a partial failure rolls back."""
+    with connect(database_url) as conn:
+        cursor = conn.execute(
+            "UPDATE documents SET deleted_at = datetime('now'), "
+            "deleted_by_user_id = ? "
+            "WHERE patient_id = ? AND deleted_at IS NULL",
+            (user_id, patient_id),
+        )
+        count = cursor.rowcount
+        conn.commit()
+    log.info(
+        "documents: chart-reset for patient=%s deleted=%d by_user=%d",
+        patient_id, count, user_id,
+    )
+    return count

@@ -7,6 +7,11 @@
 // inline Approve / Reject buttons. Approve clears the warning and the
 // document flows into agent queries; Reject marks it failed so it stays
 // in the audit trail but is excluded from chat tool reads.
+//
+// Each row also has a Delete button (soft-delete: row + derived facts
+// vanish from clinician-facing reads, audit log keeps the lifecycle).
+// A chart-level "Reset chart" button bulk-deletes all of a patient's
+// active documents — used between demo runs to start fresh.
 
 import { useEffect, useState } from 'react'
 import { api, type DocumentMeta } from '../api'
@@ -25,6 +30,7 @@ export function DocumentsList({ patientId, refreshKey, onSelectDocument }: Props
   const [error, setError] = useState<string | null>(null)
   const [actioning, setActioning] = useState<number | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [resetting, setResetting] = useState(false)
 
   async function fetchOnce() {
     setLoading(true)
@@ -90,6 +96,48 @@ export function DocumentsList({ patientId, refreshKey, onSelectDocument }: Props
     void fetchOnce()
   }
 
+  async function deleteDoc(doc: DocumentMeta) {
+    if (
+      !window.confirm(
+        `Delete document #${doc.id}? It will be removed from the chart ` +
+          `and from agent queries. The audit log keeps the deletion record, ` +
+          `and re-uploading the same file will create a fresh row.`,
+      )
+    ) {
+      return
+    }
+    setActioning(doc.id)
+    setActionError(null)
+    const res = await api.deleteDocument(doc.id)
+    setActioning(null)
+    if (!res.ok) {
+      setActionError(`Delete failed: ${res.message}`)
+      return
+    }
+    void fetchOnce()
+  }
+
+  async function resetChart() {
+    if (
+      !window.confirm(
+        `Reset the chart for ${patientId}? All ${docs.length} document` +
+          `${docs.length === 1 ? '' : 's'} will be removed from the chart ` +
+          `and from agent queries. The audit log keeps the deletion records.`,
+      )
+    ) {
+      return
+    }
+    setResetting(true)
+    setActionError(null)
+    const res = await api.resetPatientChart(patientId)
+    setResetting(false)
+    if (!res.ok) {
+      setActionError(`Chart reset failed: ${res.message}`)
+      return
+    }
+    void fetchOnce()
+  }
+
   if (error) {
     return (
       <p className="placeholder error" role="alert">
@@ -108,67 +156,94 @@ export function DocumentsList({ patientId, refreshKey, onSelectDocument }: Props
   }
 
   return (
-    <ul className="documents-list">
-      {actionError && (
-        <li className="document-row">
-          <p className="form-error" role="alert" style={{ margin: 0 }}>
-            {actionError}
-          </p>
-        </li>
-      )}
-      {docs.map((d) => {
-        const isReview = d.extraction_status === 'needs_review'
-        return (
-          <li
-            key={d.id}
-            className={`document-row${isReview ? ' document-row-review' : ''}`}
-          >
-            <button
-              type="button"
-              className="document-row-button"
-              onClick={() => onSelectDocument(d)}
-            >
-              <span className="document-meta">
-                <span className="document-type">
-                  {d.doc_type === 'lab_pdf' ? 'Lab PDF' : 'Intake form'}
-                </span>
-                <span className="document-id">#{d.id}</span>
-              </span>
-              <span className="document-uploaded">
-                {new Date(d.uploaded_at).toLocaleString()}
-              </span>
-              <StatusBadge status={d.extraction_status} error={d.extraction_error} />
-            </button>
-            {isReview && (
-              <div className="document-review-action">
-                <p className="document-review-message">
-                  <strong>Review required:</strong>{' '}
-                  {d.extraction_error ?? 'Systematic check flagged this document.'}
-                </p>
-                <div className="document-review-buttons">
-                  <button
-                    type="button"
-                    className="btn-primary btn-compact"
-                    onClick={() => approve(d)}
-                    disabled={actioning === d.id}
-                  >
-                    {actioning === d.id ? 'Approving…' : 'Approve match'}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-secondary btn-compact"
-                    onClick={() => reject(d)}
-                    disabled={actioning === d.id}
-                  >
-                    {actioning === d.id ? 'Rejecting…' : 'Reject (wrong patient)'}
-                  </button>
-                </div>
-              </div>
-            )}
+    <>
+      <div className="documents-list-header">
+        <span className="documents-list-count">
+          {docs.length} document{docs.length === 1 ? '' : 's'} on chart
+        </span>
+        <button
+          type="button"
+          className="btn-warn btn-compact"
+          onClick={resetChart}
+          disabled={resetting || actioning !== null}
+          title="Soft-delete all documents for this patient. Audit log preserved."
+        >
+          {resetting ? 'Resetting…' : 'Reset chart'}
+        </button>
+      </div>
+      <ul className="documents-list">
+        {actionError && (
+          <li className="document-row">
+            <p className="form-error" role="alert" style={{ margin: 0 }}>
+              {actionError}
+            </p>
           </li>
-        )
-      })}
-    </ul>
+        )}
+        {docs.map((d) => {
+          const isReview = d.extraction_status === 'needs_review'
+          return (
+            <li
+              key={d.id}
+              className={`document-row${isReview ? ' document-row-review' : ''}`}
+            >
+              <button
+                type="button"
+                className="document-row-button"
+                onClick={() => onSelectDocument(d)}
+              >
+                <span className="document-meta">
+                  <span className="document-type">
+                    {d.doc_type === 'lab_pdf' ? 'Lab PDF' : 'Intake form'}
+                  </span>
+                  <span className="document-id">#{d.id}</span>
+                </span>
+                <span className="document-uploaded">
+                  {new Date(d.uploaded_at).toLocaleString()}
+                </span>
+                <StatusBadge status={d.extraction_status} error={d.extraction_error} />
+              </button>
+              {isReview && (
+                <div className="document-review-action">
+                  <p className="document-review-message">
+                    <strong>Review required:</strong>{' '}
+                    {d.extraction_error ?? 'Systematic check flagged this document.'}
+                  </p>
+                  <div className="document-review-buttons">
+                    <button
+                      type="button"
+                      className="btn-primary btn-compact"
+                      onClick={() => approve(d)}
+                      disabled={actioning === d.id || resetting}
+                    >
+                      {actioning === d.id ? 'Approving…' : 'Approve match'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-secondary btn-compact"
+                      onClick={() => reject(d)}
+                      disabled={actioning === d.id || resetting}
+                    >
+                      {actioning === d.id ? 'Rejecting…' : 'Reject (wrong patient)'}
+                    </button>
+                  </div>
+                </div>
+              )}
+              <div className="document-row-trailing">
+                <button
+                  type="button"
+                  className="btn-warn btn-compact"
+                  onClick={() => deleteDoc(d)}
+                  disabled={actioning === d.id || resetting}
+                  title="Soft-delete this document. Audit log preserved."
+                >
+                  {actioning === d.id && !isReview ? 'Deleting…' : 'Delete'}
+                </button>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </>
   )
 }
 

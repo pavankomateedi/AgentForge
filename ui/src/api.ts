@@ -153,6 +153,23 @@ export const api = {
       { method: 'POST' },
     ),
 
+  // Soft-delete: row stays in the table with deleted_at set (audit
+  // trail intact); UI list reads filter it out and a re-upload of the
+  // same file creates a fresh row.
+  deleteDocument: (documentId: number) =>
+    request<{ document_id: number; deleted: true }>(
+      `/documents/${documentId}`,
+      { method: 'DELETE' },
+    ),
+
+  // Bulk soft-delete: clear all of a patient's active documents in one
+  // shot. Used by the "Reset chart" button between demo runs.
+  resetPatientChart: (patientId: string) =>
+    request<{ patient_id: string; deleted_count: number }>(
+      `/patients/${encodeURIComponent(patientId)}/documents`,
+      { method: 'DELETE' },
+    ),
+
   patientIdentity: (patientId: string) =>
     request<{
       patient_id: string

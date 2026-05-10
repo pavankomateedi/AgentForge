@@ -91,6 +91,12 @@ CREATE INDEX IF NOT EXISTS idx_daily_usage_user_date ON daily_token_usage(user_i
 -- the schema-validated facts extracted from it. Re-extraction replaces
 -- rows in derived_observations without touching the original document.
 -- See W2_ARCHITECTURE.md §3 for rationale.
+-- documents.deleted_at + deleted_by_user_id support soft-delete (chart
+-- reset). Reads must filter `WHERE deleted_at IS NULL`. The dedup key
+-- is enforced by a partial UNIQUE index (idx_documents_unique_active)
+-- created in the migration step rather than the table-level UNIQUE
+-- below — this lets a re-upload of the same file after soft-delete
+-- create a fresh row instead of being blocked by the constraint.
 CREATE TABLE IF NOT EXISTS documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     patient_id TEXT NOT NULL,
@@ -102,13 +108,20 @@ CREATE TABLE IF NOT EXISTS documents (
     uploaded_at TEXT NOT NULL DEFAULT (datetime('now')),
     extraction_status TEXT NOT NULL DEFAULT 'pending',
     extraction_error TEXT,
-    UNIQUE(patient_id, file_hash),
-    FOREIGN KEY (uploaded_by_user_id) REFERENCES users(id)
+    deleted_at TEXT,
+    deleted_by_user_id INTEGER,
+    FOREIGN KEY (uploaded_by_user_id) REFERENCES users(id),
+    FOREIGN KEY (deleted_by_user_id) REFERENCES users(id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_documents_patient ON documents(patient_id);
 CREATE INDEX IF NOT EXISTS idx_documents_uploader ON documents(uploaded_by_user_id);
 CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(extraction_status);
+
+-- The partial UNIQUE index on (patient_id, file_hash) WHERE deleted_at
+-- IS NULL is created in _migrate_documents_soft_delete after the
+-- soft-delete columns exist (legacy DBs created before the soft-delete
+-- migration don't have deleted_at yet; the migration adds it first).
 
 CREATE TABLE IF NOT EXISTS derived_observations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -163,6 +176,119 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute(
             "ALTER TABLE users ADD COLUMN bypass_mfa INTEGER NOT NULL DEFAULT 0"
         )
+
+    _migrate_documents_soft_delete(conn)
+
+
+def _migrate_documents_soft_delete(conn: sqlite3.Connection) -> None:
+    """Soft-delete migration for the documents table.
+
+    Two things to do, both idempotent:
+      1. Add deleted_at + deleted_by_user_id columns if missing.
+      2. Replace the table-level UNIQUE(patient_id, file_hash) with a
+         partial unique index that excludes soft-deleted rows. SQLite
+         cannot DROP a table constraint in place, so this requires a
+         rebuild (CREATE new -> copy -> DROP old -> RENAME). We only
+         do the rebuild when the old constraint is actually present.
+    """
+    doc_cols = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(documents)").fetchall()
+    }
+    if "deleted_at" not in doc_cols:
+        conn.execute("ALTER TABLE documents ADD COLUMN deleted_at TEXT")
+    if "deleted_by_user_id" not in doc_cols:
+        conn.execute(
+            "ALTER TABLE documents ADD COLUMN deleted_by_user_id INTEGER"
+        )
+
+    # If the active partial index already exists, the rebuild already
+    # happened on a prior cold start — nothing to do.
+    has_partial_idx = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='index' "
+        "AND name='idx_documents_unique_active'"
+    ).fetchone()
+    if has_partial_idx is not None:
+        return
+
+    # Detect the legacy table-level UNIQUE: parse sqlite_master.sql and
+    # look for the original `UNIQUE(patient_id, file_hash)` clause.
+    table_sql_row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='documents'"
+    ).fetchone()
+    if table_sql_row is None:
+        return  # documents table doesn't exist yet — fresh schema covers it
+    legacy_unique = "UNIQUE(patient_id, file_hash)" in (table_sql_row["sql"] or "")
+    if not legacy_unique:
+        # Schema is fresh (no UNIQUE on the table) but the partial
+        # index hasn't been created yet — create it now.
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_unique_active "
+            "ON documents(patient_id, file_hash) WHERE deleted_at IS NULL"
+        )
+        return
+
+    # Legacy UNIQUE present — rebuild the table. CASCADE on
+    # derived_observations.document_id stays intact because we preserve
+    # row ids during the copy.
+    conn.execute("PRAGMA foreign_keys = OFF")
+    try:
+        conn.execute("BEGIN")
+        conn.execute(
+            """CREATE TABLE documents_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_id TEXT NOT NULL,
+                doc_type TEXT NOT NULL,
+                file_blob BLOB NOT NULL,
+                file_hash TEXT NOT NULL,
+                content_type TEXT NOT NULL,
+                uploaded_by_user_id INTEGER NOT NULL,
+                uploaded_at TEXT NOT NULL DEFAULT (datetime('now')),
+                extraction_status TEXT NOT NULL DEFAULT 'pending',
+                extraction_error TEXT,
+                deleted_at TEXT,
+                deleted_by_user_id INTEGER,
+                FOREIGN KEY (uploaded_by_user_id) REFERENCES users(id),
+                FOREIGN KEY (deleted_by_user_id) REFERENCES users(id)
+            )"""
+        )
+        conn.execute(
+            """INSERT INTO documents_new (
+                id, patient_id, doc_type, file_blob, file_hash,
+                content_type, uploaded_by_user_id, uploaded_at,
+                extraction_status, extraction_error,
+                deleted_at, deleted_by_user_id
+            ) SELECT
+                id, patient_id, doc_type, file_blob, file_hash,
+                content_type, uploaded_by_user_id, uploaded_at,
+                extraction_status, extraction_error,
+                deleted_at, deleted_by_user_id
+            FROM documents"""
+        )
+        conn.execute("DROP TABLE documents")
+        conn.execute("ALTER TABLE documents_new RENAME TO documents")
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_documents_patient "
+            "ON documents(patient_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_documents_uploader "
+            "ON documents(uploaded_by_user_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_documents_status "
+            "ON documents(extraction_status)"
+        )
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_unique_active "
+            "ON documents(patient_id, file_hash) WHERE deleted_at IS NULL"
+        )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.execute("PRAGMA foreign_keys = ON")
 
 
 @contextmanager

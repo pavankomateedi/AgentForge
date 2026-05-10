@@ -1570,6 +1570,52 @@ a.ghost.cross-app-link:hover {
 .btn-secondary:hover:not(:disabled) {
   background: var(--bg-page);
 }
+/* Soft-warning destructive button. Uses the project's amber palette
+   instead of a red background per the no-red-bg preference; the
+   warn-text foreground keeps the destructive intent legible. */
+.btn-warn {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  padding: 8px 18px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+.btn-warn:hover:not(:disabled) {
+  background: var(--warn-border);
+}
+.btn-warn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Documents-list header bar: count of active docs on the left,
+   chart-level Reset button on the right. Matches the documents-list
+   row width so they align under the same gutter. */
+.documents-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 4px 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.documents-list-count {
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  font-weight: 500;
+}
+
+/* Trailing action zone on each document row — currently the Delete
+   button. Sits below the row's main button so the click target for
+   selecting the document doesn't overlap the destructive action. */
+.document-row-trailing {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 8px 10px;
+}
 
 /* ---- Document detail panes ---- */
 
