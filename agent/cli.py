@@ -148,6 +148,18 @@ def cmd_reset_mfa(args: argparse.Namespace) -> None:
     print(f"MFA reset for {args.username}; they will re-enroll on next login.")
 
 
+def cmd_set_bypass_mfa(args: argparse.Namespace) -> None:
+    config = get_config()
+    init_db(config.database_url)
+    user = auth.get_user_by_username(config.database_url, args.username)
+    if user is None:
+        print(f"No user named {args.username!r}", file=sys.stderr)
+        sys.exit(1)
+    auth._set_bypass_mfa(config.database_url, user.id, args.enable)
+    state = "enabled" if args.enable else "disabled"
+    print(f"MFA bypass {state} for {args.username}.")
+
+
 def cmd_deactivate(args: argparse.Namespace) -> None:
     config = get_config()
     init_db(config.database_url)
@@ -255,6 +267,14 @@ def main() -> None:
     )
     p_resetmfa.add_argument("username")
     p_resetmfa.set_defaults(func=cmd_reset_mfa)
+
+    p_bypass_mfa = sub.add_parser(
+        "set-bypass-mfa", help="Enable or disable MFA bypass (password-only login) for a user."
+    )
+    p_bypass_mfa.add_argument("username")
+    p_bypass_mfa.add_argument("enable", type=lambda x: x.lower() in ('true', '1', 'yes'), 
+                            help="'true' to enable bypass (turn off MFA), 'false' to disable")
+    p_bypass_mfa.set_defaults(func=cmd_set_bypass_mfa)
 
     p_test_email = sub.add_parser(
         "send-test-email",
