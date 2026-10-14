@@ -1,0 +1,5 @@
+# False positive: a Pydantic `Field(..., min_length=PASSWORD_MIN_LENGTH, ...)`
+# on the password-reset request model (agent/auth.py), matched by the
+# generic-api-key rule. It only surfaces on full-history scans
+# (workflow_dispatch / schedule); push and PR runs scan new commits only.
+0af06ac2549f6a13d1e106771cac56298a404e7b:agent/auth.py:generic-api-key:423
