@@ -19,7 +19,7 @@ gate. Click it to see the latest run's per-job status.
 > for auth and FHIR R4 as the only data path.
 >
 > **What's actually deployed in this v0**: standalone FastAPI agent service
-> + React UI, mock FHIR with two synthetic patients, in-app auth (bcrypt +
+> + React UI, mock FHIR with five synthetic patients, in-app auth (bcrypt +
 > sessions + TOTP MFA + audit + password reset) standing in for OpenEMR
 > OAuth2 until OpenEMR is wired up. The architecture document continues to
 > specify OpenEMR OAuth2 as the production target; the in-app auth is a
@@ -111,7 +111,7 @@ Sessions idle out after 5 minutes; absolute max 8 hours, regardless of which acc
 | Orchestration | Plain async Python pipeline shaped as LangGraph nodes (Plan → Retrieve → Reason → Verify → Respond). Lifts to LangGraph as a follow-up. |
 | LLM | **Claude Opus 4.7** via Anthropic SDK, with adaptive thinking + prompt caching on system prompt + tools schema |
 | Verifier | Pure Python — two-pass: source-id matching + numeric value-tolerance check against the per-turn retrieval bundle. Regenerate-once on fail, structured fallback panel on second fail. |
-| Tools | 4 read-only FHIR tools: patient summary, problem list, medication list, recent labs. Mock FHIR client returns synthetic data for two demo patients. |
+| Tools | 9 read-only FHIR tools: patient summary, problem list, medication list, recent labs, recent encounters, lab history, changes since, recent documents, clinical thresholds. Mock FHIR client returns synthetic data for five demo patients. |
 | Auth (v0 stand-in) | bcrypt password hashing · signed cookie sessions (Starlette `SessionMiddleware`) · 5-min idle / 8-hr absolute timeout · 5-fail / 15-min lockout · TOTP MFA (`pyotp`) · password reset via Resend (with dev fallback) · append-only audit log |
 | Observability | **Langfuse** (US Cloud) — one trace per `/chat` turn, `generation` observations for LLM calls (token usage + cost), `span` observations for retrieve/verify (with error level on tool failures), trace-level scores for verifier-pass-rate dashboards. Self-hosted Langfuse is the v1 hardening step per `ARCHITECTURE.md` §2.7. |
 | Data | SQLite (users, audit_log, password_reset_tokens) |
