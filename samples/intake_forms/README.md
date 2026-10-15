@@ -31,7 +31,7 @@ Uses `fpdf2`.
 
 ## Using them in the demo
 
-1. Log in as `dr.pavan` (or any account assigned to the patient).
+1. Log in as `dr.carter` (or any account assigned to the patient).
 2. Pick the patient on the left.
 3. Click **Upload** in the Documents card.
 4. Switch the document-type dropdown to **Intake form (PDF or image)**.

@@ -55,8 +55,8 @@ def _audit_events(database_url: str) -> list[dict[str, Any]]:
 def test_bypass_flag_lands_user_in_session_with_password_only(config, client):
     cfg = _make_config(
         config,
-        '[{"username":"dr.pavan","email":"dr.pavan@example.com",'
-        '"password":"PavanDaily!2026","role":"physician",'
+        '[{"username":"dr.carter","email":"dr.carter@example.com",'
+        '"password":"CarterDaily!2026","role":"physician",'
         '"patients":["demo-001","demo-002","demo-003","demo-004","demo-005"],'
         '"bypass_mfa":true}]',
     )
@@ -65,7 +65,7 @@ def test_bypass_flag_lands_user_in_session_with_password_only(config, client):
     # Single POST → full session, no MFA challenge.
     res = client.post(
         "/auth/login",
-        json={"username": "dr.pavan", "password": "PavanDaily!2026"},
+        json={"username": "dr.carter", "password": "CarterDaily!2026"},
     )
     assert res.status_code == 200, res.text
     body = res.json()
@@ -73,7 +73,7 @@ def test_bypass_flag_lands_user_in_session_with_password_only(config, client):
         "Bypass account must land directly in the workspace; got "
         f"needs_mfa={body['needs_mfa']}"
     )
-    assert body["user"]["username"] == "dr.pavan"
+    assert body["user"]["username"] == "dr.carter"
     assert body["mfa_action"] is None
 
 
@@ -84,15 +84,15 @@ def test_bypass_user_can_chat_immediately_after_login(
     round trips, no MFA in between."""
     cfg = _make_config(
         config,
-        '[{"username":"dr.pavan","email":"dr.pavan@example.com",'
-        '"password":"PavanDaily!2026","role":"physician",'
+        '[{"username":"dr.carter","email":"dr.carter@example.com",'
+        '"password":"CarterDaily!2026","role":"physician",'
         '"patients":["demo-001"],"bypass_mfa":true}]',
     )
     agent_main._bootstrap_extra_users(cfg)
 
     res = client.post(
         "/auth/login",
-        json={"username": "dr.pavan", "password": "PavanDaily!2026"},
+        json={"username": "dr.carter", "password": "CarterDaily!2026"},
     )
     assert res.status_code == 200
 
@@ -105,14 +105,14 @@ def test_bypass_user_can_chat_immediately_after_login(
 def test_bypass_login_emits_LOGIN_MFA_BYPASSED_audit_event(config, client):
     cfg = _make_config(
         config,
-        '[{"username":"dr.pavan","email":"d@e.com","password":"PavanDaily!2026",'
+        '[{"username":"dr.carter","email":"d@e.com","password":"CarterDaily!2026",'
         '"role":"physician","bypass_mfa":true}]',
     )
     agent_main._bootstrap_extra_users(cfg)
 
     client.post(
         "/auth/login",
-        json={"username": "dr.pavan", "password": "PavanDaily!2026"},
+        json={"username": "dr.carter", "password": "CarterDaily!2026"},
     )
 
     events = _audit_events(cfg.database_url)
@@ -130,20 +130,20 @@ def test_bypass_can_coexist_with_pre_enrolled_totp(config, client):
     re-enrolling."""
     cfg = _make_config(
         config,
-        '[{"username":"dr.pavan","email":"d@e.com","password":"PavanDaily!2026",'
+        '[{"username":"dr.carter","email":"d@e.com","password":"CarterDaily!2026",'
         '"role":"physician","bypass_mfa":true,'
         '"totp_secret":"6AV66JNIZTTPEBNBIUQWE2M7GVPNKDBD"}]',
     )
     agent_main._bootstrap_extra_users(cfg)
 
-    user = auth.get_user_by_username(cfg.database_url, "dr.pavan")
+    user = auth.get_user_by_username(cfg.database_url, "dr.carter")
     assert user is not None
     assert user.bypass_mfa is True
     assert user.totp_enrolled is True  # secret was still pre-loaded
 
     res = client.post(
         "/auth/login",
-        json={"username": "dr.pavan", "password": "PavanDaily!2026"},
+        json={"username": "dr.carter", "password": "CarterDaily!2026"},
     )
     assert res.status_code == 200
     assert res.json()["needs_mfa"] is False
@@ -154,12 +154,12 @@ def test_bypass_can_be_reconciled_off(config, client):
     re-running the bootstrap restores the normal MFA flow on the next
     login."""
     on = (
-        '[{"username":"dr.pavan","email":"d@e.com","password":"PavanDaily!2026",'
+        '[{"username":"dr.carter","email":"d@e.com","password":"CarterDaily!2026",'
         '"role":"physician","bypass_mfa":true,'
         '"totp_secret":"6AV66JNIZTTPEBNBIUQWE2M7GVPNKDBD"}]'
     )
     off = (
-        '[{"username":"dr.pavan","email":"d@e.com","password":"PavanDaily!2026",'
+        '[{"username":"dr.carter","email":"d@e.com","password":"CarterDaily!2026",'
         '"role":"physician","bypass_mfa":false,'
         '"totp_secret":"6AV66JNIZTTPEBNBIUQWE2M7GVPNKDBD"}]'
     )
@@ -167,13 +167,13 @@ def test_bypass_can_be_reconciled_off(config, client):
     agent_main._bootstrap_extra_users(_make_config(config, on))
     agent_main._bootstrap_extra_users(_make_config(config, off))
 
-    user = auth.get_user_by_username(config.database_url, "dr.pavan")
+    user = auth.get_user_by_username(config.database_url, "dr.carter")
     assert user is not None
     assert user.bypass_mfa is False
 
     res = client.post(
         "/auth/login",
-        json={"username": "dr.pavan", "password": "PavanDaily!2026"},
+        json={"username": "dr.carter", "password": "CarterDaily!2026"},
     )
     body = res.json()
     assert body["needs_mfa"] is True
@@ -243,14 +243,14 @@ def test_existing_users_get_bypass_mfa_default_false_after_migration(config):
 def test_bypass_does_not_skip_password_check(config, client):
     cfg = _make_config(
         config,
-        '[{"username":"dr.pavan","email":"d@e.com","password":"PavanDaily!2026",'
+        '[{"username":"dr.carter","email":"d@e.com","password":"CarterDaily!2026",'
         '"role":"physician","bypass_mfa":true}]',
     )
     agent_main._bootstrap_extra_users(cfg)
 
     res = client.post(
         "/auth/login",
-        json={"username": "dr.pavan", "password": "WrongPassword!"},
+        json={"username": "dr.carter", "password": "WrongPassword!"},
     )
     # Bypass only skips MFA, not password verification. A wrong password
     # is still 401 + counts toward lockout.
@@ -260,7 +260,7 @@ def test_bypass_does_not_skip_password_check(config, client):
 def test_bypass_does_not_skip_account_lockout(config, client):
     cfg = _make_config(
         config,
-        '[{"username":"dr.pavan","email":"d@e.com","password":"PavanDaily!2026",'
+        '[{"username":"dr.carter","email":"d@e.com","password":"CarterDaily!2026",'
         '"role":"physician","bypass_mfa":true}]',
     )
     agent_main._bootstrap_extra_users(cfg)
@@ -269,13 +269,13 @@ def test_bypass_does_not_skip_account_lockout(config, client):
     for _ in range(5):
         client.post(
             "/auth/login",
-            json={"username": "dr.pavan", "password": "WrongPassword!"},
+            json={"username": "dr.carter", "password": "WrongPassword!"},
         )
 
     # Even with the right password, account is locked for 15 min.
     res = client.post(
         "/auth/login",
-        json={"username": "dr.pavan", "password": "PavanDaily!2026"},
+        json={"username": "dr.carter", "password": "CarterDaily!2026"},
     )
     assert res.status_code == 423
 
@@ -283,14 +283,14 @@ def test_bypass_does_not_skip_account_lockout(config, client):
 # --- one assertion against the literal published config ---
 
 
-def test_published_dr_pavan_config_actually_works(config, client):
+def test_published_dr_carter_config_actually_works(config, client):
     """Pin the literal published EXTRA_USERS_JSON entry so a typo in
     the README won't survive CI."""
     cfg = _make_config(
         config,
         '['
-        '{"username":"dr.pavan","email":"dr.pavan@example.com",'
-        '"password":"PavanDaily!2026","role":"physician",'
+        '{"username":"dr.carter","email":"dr.carter@example.com",'
+        '"password":"CarterDaily!2026","role":"physician",'
         '"patients":["demo-001","demo-002","demo-003","demo-004","demo-005"],'
         '"bypass_mfa":true}'
         ']',
@@ -300,7 +300,7 @@ def test_published_dr_pavan_config_actually_works(config, client):
     # Full happy path with the published string.
     res = client.post(
         "/auth/login",
-        json={"username": "dr.pavan", "password": "PavanDaily!2026"},
+        json={"username": "dr.carter", "password": "CarterDaily!2026"},
     )
     assert res.status_code == 200
     assert res.json()["needs_mfa"] is False
@@ -308,7 +308,7 @@ def test_published_dr_pavan_config_actually_works(config, client):
     # Confirm patient access (the daily-use case).
     res = client.get("/auth/me")
     assert res.status_code == 200
-    assert res.json()["username"] == "dr.pavan"
+    assert res.json()["username"] == "dr.carter"
 
 
 def test_published_nurse_adams_config_actually_works(config, client):
