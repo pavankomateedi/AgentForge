@@ -35,10 +35,15 @@ EXTRA_USERS_JSON = (
     '"password":"GraderDemo!2026","role":"physician",'
     '"patients":["demo-001","demo-002","demo-003","demo-004","demo-005"],'
     f'"totp_secret":"{GRADER_TOTP_SECRET}"' + '},'
+    # nurse.adams: pentest carve-out — bypass_mfa lands the account
+    # straight in the workspace on password. totp_secret remains so
+    # flipping bypass_mfa off in EXTRA_USERS_JSON restores the normal
+    # MFA flow without re-enrollment.
     '{"username":"nurse.adams","email":"nurse@example.com",'
     '"password":"NurseDemo!2026","role":"nurse",'
     '"patients":["demo-001"],'
-    f'"totp_secret":"{NURSE_TOTP_SECRET}"' + '}'
+    f'"totp_secret":"{NURSE_TOTP_SECRET}",'
+    '"bypass_mfa":true' + '}'
     ']'
 )
 
@@ -78,6 +83,10 @@ def test_grader_demo_lands_in_workspace_with_published_credentials(
 def test_nurse_adams_lands_in_workspace_with_published_credentials(
     config, client
 ):
+    """Pentest carve-out: a single password POST lands nurse.adams in
+    the workspace. No MFA challenge. The pre-enrolled TOTP secret is
+    still set in the bootstrap so flipping bypass_mfa back to false
+    restores normal MFA without re-enrollment."""
     cfg = _make_config(config)
     agent_main._bootstrap_extra_users(cfg)
 
@@ -87,8 +96,33 @@ def test_nurse_adams_lands_in_workspace_with_published_credentials(
     )
     assert res.status_code == 200, res.text
     body = res.json()
-    assert body["needs_mfa"] is True
-    assert body["mfa_action"] == "challenge"
+    assert body["needs_mfa"] is False, (
+        "Pentest carve-out: nurse.adams should land directly in the "
+        f"workspace; got needs_mfa={body['needs_mfa']}"
+    )
+    assert body["user"]["role"] == "nurse"
+    assert body["user"]["username"] == "nurse.adams"
+
+
+def test_nurse_adams_flip_back_restores_totp_challenge(config, client):
+    """The docs promise that setting bypass_mfa back to false restores
+    normal MFA for nurse.adams without re-enrollment, because the
+    published TOTP secret stays in EXTRA_USERS_JSON. Pin that promise:
+    with the flag off, the published nurse secret must be accepted by
+    /auth/mfa/challenge. Without this, a base32-valid typo in the nurse
+    secret would pass CI and only surface when the carve-out ends."""
+    flipped = EXTRA_USERS_JSON.replace('"bypass_mfa":true', '"bypass_mfa":false')
+    assert flipped != EXTRA_USERS_JSON
+    cfg = replace(config, extra_users_json=flipped)
+    agent_main._bootstrap_extra_users(cfg)
+
+    res = client.post(
+        "/auth/login",
+        json={"username": "nurse.adams", "password": "NurseDemo!2026"},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["needs_mfa"] is True
+    assert res.json()["mfa_action"] == "challenge"
 
     code = pyotp.TOTP(NURSE_TOTP_SECRET).now()
     res = client.post("/auth/mfa/challenge", json={"code": code})
@@ -129,16 +163,17 @@ def test_nurse_adams_can_only_chat_about_demo_001(
 ):
     """Inverse: nurse.adams must be REFUSED on every patient except
     demo-001, so the RBAC demo on the live URL actually shows
-    something."""
+    something. The MFA bypass changes the auth path but NOT the RBAC
+    gate — the 403 on non-assigned patients still has to fire."""
     cfg = _make_config(config)
     agent_main._bootstrap_extra_users(cfg)
 
-    client.post(
+    res = client.post(
         "/auth/login",
         json={"username": "nurse.adams", "password": "NurseDemo!2026"},
     )
-    code = pyotp.TOTP(NURSE_TOTP_SECRET).now()
-    client.post("/auth/mfa/challenge", json={"code": code})
+    assert res.status_code == 200
+    assert res.json()["needs_mfa"] is False
 
     # Allowed.
     res = client.post(

@@ -311,5 +311,46 @@ def test_published_dr_pavan_config_actually_works(config, client):
     assert res.json()["username"] == "dr.pavan"
 
 
+def test_published_nurse_adams_config_actually_works(config, client):
+    """Pentest carve-out: the literal published nurse.adams entry —
+    bypass_mfa alongside the pre-enrolled totp_secret — must land the
+    account in the workspace on password alone. The totp_secret is
+    intentionally retained so flipping bypass_mfa back to false in
+    EXTRA_USERS_JSON restores the normal MFA flow on the next cold
+    start without re-enrollment."""
+    cfg = _make_config(
+        config,
+        '['
+        '{"username":"nurse.adams","email":"nurse@example.com",'
+        '"password":"NurseDemo!2026","role":"nurse",'
+        '"patients":["demo-001"],'
+        '"totp_secret":"LMLIHJIU6JGPW2KCFYDVLGETQX54QUFG",'
+        '"bypass_mfa":true}'
+        ']',
+    )
+    agent_main._bootstrap_extra_users(cfg)
+
+    # Both flags landed.
+    user = auth.get_user_by_username(cfg.database_url, "nurse.adams")
+    assert user is not None
+    assert user.bypass_mfa is True
+    assert user.totp_enrolled is True  # secret pre-enrolled for easy flip-back
+
+    # Single POST → full session, no MFA.
+    res = client.post(
+        "/auth/login",
+        json={"username": "nurse.adams", "password": "NurseDemo!2026"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["needs_mfa"] is False
+    assert body["user"]["role"] == "nurse"
+
+    # /auth/me confirms the session is genuine, not pending-mfa.
+    res = client.get("/auth/me")
+    assert res.status_code == 200
+    assert res.json()["username"] == "nurse.adams"
+
+
 # --- pyotp is imported above; explicit reference so unused-import lint stays quiet ---
 assert pyotp.random_base32  # sanity touch

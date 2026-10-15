@@ -257,12 +257,18 @@ Default: **MFA mandatory.** Every account goes through TOTP
 enrollment on first login and a TOTP challenge on every subsequent
 login before any `/chat` access. Secret stored per-user, never logged.
 
-Carve-out: a single account flagged `bypass_mfa: true` in
-`EXTRA_USERS_JSON` lands in the workspace with password only. Used
-only on **synthetic-data demo deployments** for the operator's
-daily-use account. Every bypass login emits a distinct
-`LOGIN_MFA_BYPASSED` audit row so the carve-out is queryable from
-the trail rather than silent. Documented in
+Carve-out: accounts flagged `bypass_mfa: true` in `EXTRA_USERS_JSON`
+land in the workspace with password only. Used only on
+**synthetic-data demo deployments**. Two accounts currently carry the
+flag: (1) `dr.pavan`, the operator's daily-use account; (2)
+`nurse.adams`, scoped to the authorized pentest engagement (see
+pentest authorization doc) so the testing harness can authenticate
+without a TOTP step — set it to `false` when the engagement ends.
+`EXTRA_USERS_JSON` is the source of truth: the bootstrap only
+reconciles an explicit `false` (omitting the key leaves the stored
+flag) and overrides any CLI change on the next cold start. Every bypass
+login emits a distinct `LOGIN_MFA_BYPASSED` audit row so the carve-out
+is queryable from the trail rather than silent. Documented in
 [`HIPAA_COMPLIANCE.md` §164.312(d)](./HIPAA_COMPLIANCE.md) and
 **must be removed before this deployment is allowed to process real
 PHI**.
@@ -277,7 +283,7 @@ the deployment holds **zero real PHI**.
 |---|---|---|---|---|
 | `dr.pavan` | physician | all 5 | **password only** (`bypass_mfa: true`) | Operator's daily-use account; demonstrates UC-1 → UC-7 with no MFA friction |
 | `grader.demo` | physician | all 5 | password + TOTP (pre-enrolled) | Hand-off account for graders / reviewers; pre-enrolled so the MFA challenge is a 6-digit code computed from a published TOTP secret, not a QR-scan ceremony |
-| `nurse.adams` | nurse | demo-001 only | password + TOTP (pre-enrolled) | Exercises the RBAC refusal path: same UI, but `/chat` 403s for demo-002–005. Also has a smaller tool set (no problem list) so the agent's plan-node fan-out is observably different |
+| `nurse.adams` | nurse | demo-001 only | **password only** (`bypass_mfa: true`, pentest carve-out) | Exercises the RBAC refusal path: same UI, but `/chat` 403s for demo-002–005. Also has a smaller tool set (no problem list) so the agent's plan-node fan-out is observably different. MFA bypassed for the authorized pentest engagement; set the flag to `false` when the engagement ends. The pre-enrolled TOTP secret stays in `EXTRA_USERS_JSON`, so that restores the normal MFA flow on the next cold start without re-enrollment. |
 
 Passwords and TOTP secrets are published in [README.md](./README.md)
 "Grader credentials" section because the data is synthetic; this
