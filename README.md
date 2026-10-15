@@ -74,17 +74,17 @@ FHIR R4 API as the data layer; no backend changes.
 
 ## Grader credentials
 
-Three accounts on the live deployment. **MFA is mandatory by default**; `grader.demo` still goes through the TOTP challenge, so its secret is published below so a 6-digit code can be generated without the in-app QR enrollment dance. `dr.pavan` and `nurse.adams` carry the documented carve-out described in the table. (Synthetic data only — publishing TOTP secrets like this would be a security violation against real PHI; see [HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md) §164.312(d).)
+Three accounts on the live deployment. **MFA is mandatory by default**; `grader.demo` still goes through the TOTP challenge, so its secret is published below so a 6-digit code can be generated without the in-app QR enrollment dance. `dr.carter` and `nurse.adams` carry the documented carve-out described in the table. (Synthetic data only — publishing TOTP secrets like this would be a security violation against real PHI; see [HIPAA_COMPLIANCE.md](./HIPAA_COMPLIANCE.md) §164.312(d).)
 
 | Account | Password | Role | Patients | MFA |
 |---|---|---|---|---|
 | `grader.demo` | `GraderDemo!2026` | physician | all 5 demo patients | Pre-enrolled — TOTP secret `6AV66JNIZTTPEBNBIUQWE2M7GVPNKDBD` |
 | `nurse.adams` | `NurseDemo!2026` | nurse | `demo-001` only — exercises the RBAC refusal path on every other patient | **Bypassed** (`bypass_mfa: true`) — password-only login for the authorized pentest engagement; the pre-enrolled TOTP secret `LMLIHJIU6JGPW2KCFYDVLGETQX54QUFG` stays in `EXTRA_USERS_JSON`, so setting the flag to `false` restores normal MFA on the next cold start (deleting the key does not — the bootstrap only reconciles an explicit `false`). Emits `LOGIN_MFA_BYPASSED` on every login. Set it to `false` when the engagement ends. |
-| `dr.pavan` | `PavanDaily!2026` | physician | all 5 demo patients | **Bypassed** (`bypass_mfa: true`) — password-only login. Emits a `LOGIN_MFA_BYPASSED` audit row on every login. Synthetic data only; the carve-out is documented in [HIPAA_COMPLIANCE.md §164.312(d)](./HIPAA_COMPLIANCE.md). |
+| `dr.carter` | `CarterDaily!2026` | physician | all 5 demo patients | **Bypassed** (`bypass_mfa: true`) — password-only login. Emits a `LOGIN_MFA_BYPASSED` audit row on every login. Synthetic data only; the carve-out is documented in [HIPAA_COMPLIANCE.md §164.312(d)](./HIPAA_COMPLIANCE.md). |
 
 **Sign-in flows:**
 
-+ `dr.pavan` / `nurse.adams` — type username + password, hit Enter, you're in. No MFA. (`dr.pavan` is the daily-use account; `nurse.adams` is bypassed for the authorized pentest engagement. Password-only is acceptable here only because there is zero real PHI on this deployment — see [HIPAA_COMPLIANCE.md §164.312(d)](./HIPAA_COMPLIANCE.md).)
++ `dr.carter` / `nurse.adams` — type username + password, hit Enter, you're in. No MFA. (`dr.carter` is the daily-use account; `nurse.adams` is bypassed for the authorized pentest engagement. Password-only is acceptable here only because there is zero real PHI on this deployment — see [HIPAA_COMPLIANCE.md §164.312(d)](./HIPAA_COMPLIANCE.md).)
 + `grader.demo` — type username + password → MFA challenge appears (not enrollment) → enter the 6-digit code → land on the workspace.
 
 **Get a current 6-digit MFA code (for `grader.demo`) three ways:**

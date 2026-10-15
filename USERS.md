@@ -260,7 +260,7 @@ login before any `/chat` access. Secret stored per-user, never logged.
 Carve-out: accounts flagged `bypass_mfa: true` in `EXTRA_USERS_JSON`
 land in the workspace with password only. Used only on
 **synthetic-data demo deployments**. Two accounts currently carry the
-flag: (1) `dr.pavan`, the operator's daily-use account; (2)
+flag: (1) `dr.carter`, the operator's daily-use account; (2)
 `nurse.adams`, scoped to the authorized pentest engagement (see
 pentest authorization doc) so the testing harness can authenticate
 without a TOTP step — set it to `false` when the engagement ends.
@@ -281,7 +281,7 @@ the deployment holds **zero real PHI**.
 
 | Account | Role | Patients | Auth mode | Purpose |
 |---|---|---|---|---|
-| `dr.pavan` | physician | all 5 | **password only** (`bypass_mfa: true`) | Operator's daily-use account; demonstrates UC-1 → UC-7 with no MFA friction |
+| `dr.carter` | physician | all 5 | **password only** (`bypass_mfa: true`) | Operator's daily-use account; demonstrates UC-1 → UC-7 with no MFA friction |
 | `grader.demo` | physician | all 5 | password + TOTP (pre-enrolled) | Hand-off account for graders / reviewers; pre-enrolled so the MFA challenge is a 6-digit code computed from a published TOTP secret, not a QR-scan ceremony |
 | `nurse.adams` | nurse | demo-001 only | **password only** (`bypass_mfa: true`, pentest carve-out) | Exercises the RBAC refusal path: same UI, but `/chat` 403s for demo-002–005. Also has a smaller tool set (no problem list) so the agent's plan-node fan-out is observably different. MFA bypassed for the authorized pentest engagement; set the flag to `false` when the engagement ends. The pre-enrolled TOTP secret stays in `EXTRA_USERS_JSON`, so that restores the normal MFA flow on the next cold start without re-enrollment. |
 
@@ -294,7 +294,7 @@ in the README fails CI rather than reaching the deployment.
 
 ### What this enables for the use cases
 
-- **UC-1 → UC-7** (Dr. Chen persona) run cleanly under `dr.pavan` for daily operator use, or under `grader.demo` for an external reviewer who follows the README's MFA flow.
+- **UC-1 → UC-7** (Dr. Chen persona) run cleanly under `dr.carter` for daily operator use, or under `grader.demo` for an external reviewer who follows the README's MFA flow.
 - **UC-5 (Authorization Boundary)** is concretely demonstrable on the live URL by signing in as `nurse.adams` and trying to `/chat` about `demo-003` — the 403 + audit row is the visible artifact the case study calls for.
 
 ---
